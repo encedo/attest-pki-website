@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Encedo PKI</title>
+<meta name="description" content="Certificate authorities of Encedo Limited that attest Encedo HEM devices: certificates, revocation lists and how to verify a device.">
+<link rel="canonical" href="https://pki.encedo.com/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2213%22%20fill%3D%22%230F5F4B%22%2F%3E%3Crect%20x%3D%2216%22%20y%3D%2216%22%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22none%22%20stroke%3D%22%23AFD2C5%22%20stroke-width%3D%224%22%2F%3E%3Cpath%20d%3D%22M24%2033l6%206%2011-12%22%20fill%3D%22none%22%20stroke%3D%22%23F2F8F5%22%20stroke-width%3D%225%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E">
+<style>
+  /* ---- tokens ---------------------------------------------------
+     The palette is rkv.pl's, so the two read as one family. Green
+     ("sealed") is the only accent: on this page it marks what a
+     reader can check for themselves - a fingerprint, a file, a
+     command. */
+  :root {
+    --ground:    #F1F4F3;
+    --surface:   #FFFFFF;
+    --sunken:    #E7EBE9;
+    --ink:       #0F1414;
+    --ink-soft:  #3A4746;
+    --muted:     #6A7773;
+    --rule:      #D5DCD9;
+    --rule-firm: #A9B5B1;
+
+    --sealed:      #0F5F4B;
+    --sealed-soft: #E0EFE9;
+    --sealed-line: #96C6B5;
+
+    --shadow-lg: 0 2px 4px rgba(15, 20, 20, .04), 0 18px 44px -22px rgba(15, 20, 20, .30);
+
+    --mono:  ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", ui-serif, serif;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:    #0A0E0E;
+      --surface:   #121918;
+      --sunken:    #060909;
+      --ink:       #E8F0ED;
+      --ink-soft:  #AFBDB8;
+      --muted:     #7C8C87;
+      --rule:      #232D2C;
+      --rule-firm: #3A4644;
+
+      --sealed:      #47C6A3;
+      --sealed-soft: #102E27;
+      --sealed-line: #2C6858;
+
+      --shadow-lg: 0 2px 4px rgba(0, 0, 0, .4), 0 20px 50px -24px rgba(0, 0, 0, .85);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:    #0A0E0E;
+    --surface:   #121918;
+    --sunken:    #060909;
+    --ink:       #E8F0ED;
+    --ink-soft:  #AFBDB8;
+    --muted:     #7C8C87;
+    --rule:      #232D2C;
+    --rule-firm: #3A4644;
+
+    --sealed:      #47C6A3;
+    --sealed-soft: #102E27;
+    --sealed-line: #2C6858;
+
+    --shadow-lg: 0 2px 4px rgba(0, 0, 0, .4), 0 20px 50px -24px rgba(0, 0, 0, .85);
+  }
+
+  /* ---- base ---------------------------------------------------- */
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  .wrap    { max-width: 1140px; margin: 0 auto; padding: 0 32px; }
+  .measure { max-width: 66ch; }
+
+  section { padding: 88px 0; border-top: 1px solid var(--rule); }
+  @media (max-width: 760px) { section { padding: 60px 0; } }
+
+  h1, h2, h3 { margin: 0; text-wrap: balance; }
+  p, dd, dl { margin: 0; }
+
+  h2 {
+    font-size: clamp(26px, 3.2vw, 36px);
+    line-height: 1.14;
+    letter-spacing: -.025em;
+    font-weight: 600;
+  }
+  h3 { font-size: 19px; font-weight: 620; letter-spacing: -.01em; }
+
+  .stack-s { display: flex; flex-direction: column; gap: 12px; }
+  .stack   { display: flex; flex-direction: column; gap: 22px; }
+  .stack-l { display: flex; flex-direction: column; gap: 48px; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: .17em;
+    text-transform: uppercase;
+    color: var(--sealed);
+  }
+  .lede { font-family: var(--serif); font-size: 20px; line-height: 1.55; color: var(--ink-soft); }
+  .body-soft { color: var(--ink-soft); }
+  code { font-family: var(--mono); font-size: .88em; }
+
+  a { color: var(--sealed); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  a:focus-visible { outline: 2px solid var(--sealed); outline-offset: 4px; border-radius: 2px; }
+
+  /* ---- masthead ------------------------------------------------ */
+  .masthead {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 8px 20px; flex-wrap: wrap;
+    padding: 26px 0 0;
+    font-family: var(--mono); font-size: 12px; letter-spacing: .04em;
+    color: var(--muted);
+  }
+  .masthead b { color: var(--ink); font-weight: 500; letter-spacing: .02em; }
+
+  /* ---- hero ---------------------------------------------------- */
+  .hero { padding: 80px 0 96px; border-top: 0; }
+  .hero-grid { display: grid; grid-template-columns: 1fr 1.05fr; gap: 56px; align-items: center; }
+  @media (max-width: 940px) { .hero-grid { grid-template-columns: 1fr; gap: 44px; } }
+
+  .hero h1 {
+    font-size: clamp(36px, 5.2vw, 60px);
+    line-height: 1.05;
+    letter-spacing: -.035em;
+    font-weight: 620;
+    max-width: 15ch;
+  }
+  .hero h1 .quiet { color: var(--muted); }
+
+  /* ---- the chain card ------------------------------------------ */
+  .conf {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 5px;
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+  }
+  .conf-head {
+    display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    padding: 11px 18px;
+    background: var(--sunken);
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--mono); font-size: 11.5px; letter-spacing: .06em;
+    color: var(--muted);
+  }
+  .conf-head .v { color: var(--ink); }
+  .conf-body { padding: 18px 18px 22px; overflow-x: auto; }
+  .cline {
+    font-family: var(--mono); font-size: 13px; line-height: 2;
+    white-space: pre; color: var(--ink-soft);
+  }
+  .cline .k { color: var(--ink); }
+  .cline .c { color: var(--muted); }
+  .cline .note { color: var(--muted); }
+  .cline.in {
+    color: var(--sealed);
+    background: var(--sealed-soft);
+    border-radius: 2px;
+    padding: 0 5px; margin: 0 -5px;
+  }
+  .cline.in .k { color: var(--sealed); }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .rise { animation: rise .6s cubic-bezier(.2,.7,.3,1) both; }
+    .rise-2 { animation-delay: .08s; }
+    @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  }
+
+  /* ---- certificate authorities --------------------------------
+     One block per CA, its facts set as a short spec sheet, the same
+     way rkv.pl sets the facts of a product. */
+  .cas { display: flex; flex-direction: column; gap: 40px; }
+  .ca { border-top: 2px solid var(--sealed-line); padding-top: 20px;
+        display: grid; grid-template-columns: 1fr 2fr; gap: 20px 48px; align-items: start; }
+  .ca.root { border-top-color: var(--sealed); }
+  @media (max-width: 860px) { .ca { grid-template-columns: 1fr; gap: 18px; } }
+  .ca .lead { display: flex; flex-direction: column; gap: 10px; }
+  .ca .role { font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--sealed); }
+  .ca .lead p { font-size: 15px; color: var(--ink-soft); }
+  .dl { display: flex; flex-wrap: wrap; gap: 4px 14px; font-family: var(--mono); font-size: 12.5px; letter-spacing: .02em; }
+
+  .spec { display: flex; flex-direction: column; margin: 0; }
+  .spec .row { display: grid; grid-template-columns: 112px 1fr; gap: 16px; padding: 11px 0; border-top: 1px solid var(--rule); }
+  .spec .row:first-child { border-top: 0; padding-top: 2px; }
+  @media (max-width: 560px) { .spec .row { grid-template-columns: 1fr; gap: 4px; } }
+  .spec dt { font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); padding-top: 3px; }
+  .spec dd { font-size: 15px; color: var(--ink-soft); }
+  /* A fingerprint is longer than the column on a phone; it wraps
+     instead of pushing the page sideways. */
+  .fp { font-family: var(--mono); font-size: 13px; line-height: 1.7; color: var(--ink); overflow-wrap: anywhere; }
+
+  /* ---- ledger: revocation lists ---------------------------------- */
+  .ledger { display: flex; flex-direction: column; }
+  .item { display: grid; grid-template-columns: 230px 1fr 1fr; gap: 8px 28px; padding: 20px 0; border-top: 1px solid var(--rule); align-items: baseline; }
+  .item:first-child { border-top: 0; padding-top: 0; }
+  @media (max-width: 760px) { .item { grid-template-columns: 1fr; gap: 4px; } }
+  .item dt { font-family: var(--mono); font-size: 13.5px; color: var(--ink); line-height: 1.5; }
+  .item dd { color: var(--ink-soft); font-size: 15.5px; }
+  .item dd a { font-family: var(--mono); font-size: 13.5px; }
+
+  /* ---- commands --------------------------------------------------
+     A command longer than the measure wraps with a hanging indent at
+     every width; a tail behind a scrollbar is a tail nobody reads. */
+  .cmd { background: var(--sunken); border: 1px solid var(--rule); border-radius: 5px; padding: 20px 22px; }
+  .cmd pre { margin: 0; font-family: var(--mono); font-size: 13px; line-height: 1.95; color: var(--ink-soft);
+             white-space: pre-wrap; overflow-wrap: anywhere; }
+  /* Each line hangs on its own, so a second command starts flush left
+     and only the continuation of a wrapped line is indented. */
+  .cmd .l { display: block; padding-left: 3ch; text-indent: -3ch; }
+  .cmd .p { color: var(--muted); }
+  .cmd .o { color: var(--sealed); }
+
+  .steps { display: grid; grid-template-columns: 1fr 1fr; gap: 28px 40px; }
+  @media (max-width: 860px) { .steps { grid-template-columns: 1fr; } }
+  .step { display: flex; flex-direction: column; gap: 12px; }
+  .step .n { font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--sealed); }
+  .step p { font-size: 15.5px; color: var(--ink-soft); }
+
+  /* ---- footer: a row of links, the owner at the far end ---------- */
+  footer { border-top: 1px solid var(--rule); padding: 30px 0 60px; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: center; }
+  footer a { font-family: var(--mono); font-size: 12.5px; color: var(--muted); text-decoration: none; }
+  footer a:hover { color: var(--ink); }
+  footer .spacer { flex: 1; }
+
+  /* ---- narrow screens -------------------------------------------
+     Grid and flex children are min-width:auto by default, so one block
+     that does not wrap drags the whole page wider than the screen. */
+  .hero-grid > *, .ca, .ca > *, .spec, .spec .row, .spec .row > *,
+  .item, .item > *, .steps > *, .stack, .stack-s, .stack-l { min-width: 0; }
+  .conf, .conf-body, .cmd { max-width: 100%; }
+
+  @media (max-width: 560px) {
+    .wrap { padding: 0 16px; }
+    .lede { font-size: 18px; }
+    .cmd { padding: 18px 16px; }
+    .cmd pre { font-size: 12px; }
+    .conf-body { padding: 16px 14px 20px; }
+    .cline { white-space: pre-wrap; overflow-wrap: anywhere; }
+    .cline .note { display: block; padding-left: 2ch; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="masthead">
+    <span><b>encedo</b> &nbsp;public key infrastructure</span>
+    <span>pki.encedo.com &middot; HEM device attestation</span>
+  </div>
+</div>
+
+<section class="hero">
+  <div class="wrap">
+    <div class="hero-grid">
+      <div class="stack rise">
+        <p class="eyebrow">Encedo Limited &middot; certificate authorities</p>
+        <h1>Every HEM carries a certificate.<br><span class="quiet">Check it here.</span></h1>
+        <p class="lede">
+          Each Encedo HEM holds a key pair generated inside the device and a certificate
+          for it, issued by the Encedo Custody CA. This page publishes the whole chain up
+          to the root, with its revocation lists, so that any device can be checked
+          against it with stock tools and nothing taken on our word.
+        </p>
+      </div>
+
+      <div class="conf rise rise-2">
+        <div class="conf-head">
+          <span>pki.encedo.com &mdash; chain of trust</span>
+          <span class="v">root to device</span>
+        </div>
+        <div class="conf-body">
+          <div class="cline"><span class="c">[chain]</span></div>
+          <div class="cline">Root        = <span class="k">Encedo Root CA</span> <span class="note">&middot; RSA 4096, to 2040</span></div>
+          <div class="cline"> &boxur; issues  = <span class="k">Encedo Attestation CA</span> <span class="note">&middot; P-256, to 2030</span></div>
+          <div class="cline">   &boxur; issues = <span class="k">Encedo Custody CA</span> <span class="note">&middot; P-256, to 2030</span></div>
+          <div class="cline">     &boxur; issues = <span class="k">HEM device certificates</span></div>
+          <div class="cline">&nbsp;</div>
+          <div class="cline"><span class="c">[verify]</span></div>
+          <div class="cline in">$ openssl verify -CAfile <span class="k">root-ca.pem</span> \</div>
+          <div class="cline in">    -untrusted <span class="k">intermediates-chain.pem</span> device.pem</div>
+          <div class="cline">device.pem: OK</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="ca">
+  <div class="wrap stack-l">
+    <div class="stack-s measure">
+      <p class="eyebrow">Certificate authorities</p>
+      <h2>Three authorities, one chain.</h2>
+      <p class="body-soft">
+        Each certificate is published in DER (<code>.cer</code>, the form named in the
+        certificates' own AIA fields) and in PEM. Compare the SHA-256 fingerprint with the
+        file you downloaded before you install a root.
+      </p>
+    </div>
+
+    <div class="cas">
+      <div class="ca root">
+        <div class="lead">
+          <span class="role">Trust anchor</span>
+          <h3>Encedo Root CA</h3>
+          <p>Self-signed. Kept offline; it signs only the Attestation CA and its own revocation list.</p>
+          <div class="dl"><a href="root-ca.cer">root-ca.cer</a><a href="root-ca.pem">root-ca.pem</a></div>
+        </div>
+        <dl class="spec">
+          <div class="row"><dt>Key</dt><dd>RSA 4096</dd></div>
+          <div class="row"><dt>Valid</dt><dd>2020-08-21 &ndash; 2040-12-31</dd></div>
+          <div class="row"><dt>SHA-256</dt><dd class="fp">B2:8F:4E:E4:CF:26:02:82:60:CF:4F:0D:B1:8B:D2:FB:72:34:D1:72:92:57:97:DC:A7:F8:1E:53:A2:81:6E:9C</dd></div>
+          <div class="row"><dt>SKI</dt><dd class="fp">E7:F0:D1:36:5F:51:58:CC:82:9C:1E:51:68:3B:ED:2C:54:82:0F:D5</dd></div>
+        </dl>
+      </div>
+
+      <div class="ca">
+        <div class="lead">
+          <span class="role">Intermediate</span>
+          <h3>Encedo Attestation CA</h3>
+          <p>Issued by the Root CA. Signs the Custody CA.</p>
+          <div class="dl"><a href="attestation-ca.cer">attestation-ca.cer</a><a href="attestation-ca.pem">attestation-ca.pem</a></div>
+        </div>
+        <dl class="spec">
+          <div class="row"><dt>Key</dt><dd>ECDSA P-256</dd></div>
+          <div class="row"><dt>Valid</dt><dd>2020-08-21 &ndash; 2030-08-21</dd></div>
+          <div class="row"><dt>SHA-256</dt><dd class="fp">AA:12:2E:2F:04:DF:05:D5:52:09:3A:C0:9F:D1:69:FC:3E:13:D2:65:63:FE:5A:5E:26:6C:DC:1A:7B:BD:B6:F3</dd></div>
+          <div class="row"><dt>SKI</dt><dd class="fp">9E:2F:18:A5:6A:7A:50:01:3D:53:45:28:26:61:3F:EA:21:84:41:A0</dd></div>
+        </dl>
+      </div>
+
+      <div class="ca">
+        <div class="lead">
+          <span class="role">Issuing CA</span>
+          <h3>Encedo Custody CA</h3>
+          <p>Issued by the Attestation CA. Signs the certificates of HEM devices; it issues no further CAs.</p>
+          <div class="dl"><a href="custody-ca.cer">custody-ca.cer</a><a href="custody-ca.pem">custody-ca.pem</a></div>
+        </div>
+        <dl class="spec">
+          <div class="row"><dt>Key</dt><dd>ECDSA P-256</dd></div>
+          <div class="row"><dt>Valid</dt><dd>2020-08-21 &ndash; 2030-08-21</dd></div>
+          <div class="row"><dt>SHA-256</dt><dd class="fp">1F:17:51:E7:57:C0:4E:D3:E8:A8:97:F8:79:3B:EF:6A:E4:1E:70:7C:5E:0D:55:45:DF:9E:CD:9C:1D:EC:5C:67</dd></div>
+          <div class="row"><dt>SKI</dt><dd class="fp">79:55:57:8E:95:AD:27:B5:3B:06:C9:C2:CA:1C:02:36:A8:0E:7C:06</dd></div>
+        </dl>
+      </div>
+    </div>
+
+    <p class="body-soft measure">
+      <a href="intermediates-chain.pem"><code>intermediates-chain.pem</code></a> holds the
+      Custody CA and the Attestation CA, in the order a client sends them.
+    </p>
+  </div>
+</section>
+
+<section id="crl">
+  <div class="wrap stack-l">
+    <div class="stack-s measure">
+      <p class="eyebrow">Revocation</p>
+      <h2>Revocation lists</h2>
+      <p class="body-soft">
+        One list per authority, in DER, at the address named in the certificates' CRL
+        distribution points. The lists are also served over plain HTTP, because some
+        clients fetch them no other way; their signature, not the transport, is what
+        protects them.
+      </p>
+    </div>
+
+    <dl class="ledger">
+      <div class="item"><dt>Encedo Root CA</dt><dd><a href="root-ca.crl">root-ca.crl</a></dd><dd>next update 2027-11-04</dd></div>
+      <div class="item"><dt>Encedo Attestation CA</dt><dd><a href="attestation-ca.crl">attestation-ca.crl</a></dd><dd>next update 2027-11-04</dd></div>
+      <div class="item"><dt>Encedo Custody CA</dt><dd><a href="custody-ca.crl">custody-ca.crl</a></dd><dd>next update 2027-11-04</dd></div>
+    </dl>
+  </div>
+</section>
+
+<section id="verify">
+  <div class="wrap stack-l">
+    <div class="stack-s measure">
+      <p class="eyebrow">Verify</p>
+      <h2>Check a device yourself.</h2>
+      <p class="body-soft">
+        Everything below runs with OpenSSL and nothing from us but the files on this page.
+        The same files, with their history, are in the
+        <a href="https://github.com/encedo/attest-pki-website">public repository</a>.
+      </p>
+    </div>
+
+    <div class="steps">
+      <div class="step">
+        <span class="n">1 &middot; the files</span>
+        <p>Download the files and check them against <a href="SHA256SUMS"><code>SHA256SUMS</code></a>.</p>
+        <div class="cmd"><pre><span class="l"><span class="p">$</span> sha256sum -c SHA256SUMS</span><span class="l"><span class="o">attestation-ca.cer: OK</span></span><span class="l"><span class="o">&hellip;</span></span></pre></div>
+      </div>
+      <div class="step">
+        <span class="n">2 &middot; the root</span>
+        <p>Compare the root's fingerprint with the one printed above.</p>
+        <div class="cmd"><pre><span class="l"><span class="p">$</span> openssl x509 -in root-ca.pem -noout -fingerprint -sha256</span><span class="l"><span class="o">sha256 Fingerprint=B2:8F:4E:E4:CF:26:02:82:&hellip;</span></span></pre></div>
+      </div>
+      <div class="step">
+        <span class="n">3 &middot; the device</span>
+        <p>Verify the device certificate against the chain.</p>
+        <div class="cmd"><pre><span class="l"><span class="p">$</span> openssl verify -CAfile root-ca.pem -untrusted intermediates-chain.pem device.pem</span><span class="l"><span class="o">device.pem: OK</span></span></pre></div>
+      </div>
+      <div class="step">
+        <span class="n">4 &middot; revocation</span>
+        <p>Check the same chain with every revocation list applied.</p>
+        <div class="cmd"><pre><span class="l"><span class="p">$</span> cat root-ca.pem intermediates-chain.pem &gt; chain.pem</span><span class="l"><span class="p">$</span> for c in root attestation custody; do openssl crl -inform DER -in $c-ca.crl; done &gt; crls.pem</span><span class="l"><span class="p">$</span> openssl verify -crl_check_all -CAfile chain.pem -CRLfile crls.pem device.pem</span><span class="l"><span class="o">device.pem: OK</span></span></pre></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <a href="SHA256SUMS">SHA256SUMS</a>
+    <a href="https://github.com/encedo/attest-pki-website">Source (MIT)</a>
+    <a href="https://encedo.com/">Encedo</a>
+    <span class="spacer"></span>
+    <a href="https://rkv.pl">RKV</a>
+  </div>
+</footer>
+
+</body>
+</html>
