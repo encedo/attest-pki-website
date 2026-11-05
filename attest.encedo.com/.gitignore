@@ -1,0 +1,8 @@
+# test PKI (tools/make_test_pki.php) and the built index
+tools/testca/
+data/
+pki/test-*.pem
+issued/test-*.pem
+# fetched at deploy time by tools/sync_pki.php from https://pki.encedo.com
+pki/*.pem
+crl/
