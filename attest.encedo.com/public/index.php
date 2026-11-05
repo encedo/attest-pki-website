@@ -13,6 +13,15 @@ require __DIR__ . '/../lib/verify.php';
 require __DIR__ . '/../lib/store.php';
 require __DIR__ . '/../lib/pki.php';
 
+// Every answer carries Content-Length: the body is buffered and measured before anything
+// is sent (the PHP built-in server would otherwise answer chunked / close-delimited).
+ob_start();
+register_shutdown_function(function () {
+    $code = http_response_code();
+    if (!headers_sent() && $code !== 204 && $code !== 304) header('Content-Length: ' . ob_get_length());
+    ob_end_flush();
+});
+
 const MAX_BODY = 24576;   // an ML-DSA-87 key PoP token (~11 KB) + the device certificate, form-encoded
 
 function send_json(int $code, array $data, bool $cors = false): void {

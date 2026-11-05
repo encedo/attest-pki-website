@@ -23,7 +23,7 @@ Status:
 
 A `pop.mac` (ECDH / KEM PoP) needs the verifier's ephemeral secret and is not checked here; [`attest_verify`](../attest_verify/) does it on the verifier side.
 
-Nothing is stored and no JWT is logged. Body limit 16 KB. CORS only on `/v1/skid` and `/v1/pki`.
+Nothing is stored and no JWT is logged. Body limit 24 KB. Every answer carries `Content-Length`. CORS only on `/v1/skid` and `/v1/pki`.
 
 ## Data (read-only)
 

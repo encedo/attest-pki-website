@@ -1,6 +1,7 @@
 # attest-pki-website
 
-Static websites of the Encedo attestation host. One folder per site, served as is.
+The two sites of the Encedo attestation host, the CLI verifier and the scripts that deploy them.
+One folder per site: pki.encedo.com is static, attest.encedo.com is a PHP service in Docker.
 
 | folder | site | contents |
 |---|---|---|
@@ -26,7 +27,7 @@ Encedo Root CA             RSA 4096,    valid until 2040-12-31
 | `SHA256SUMS` | SHA-256 of every file above |
 | `index.html` | the page; no scripts, no external resources |
 
-Only public material lives here. No private key, no CA database and no server configuration.
+Only public material lives in this folder: no private key and no CA database.
 
 ### Verify a device
 
@@ -48,7 +49,7 @@ openssl verify -crl_check_all -CAfile chain.pem -CRLfile crls.pem device.pem
 
 ### Serving
 
-Copy the folder to the web root of the site. The server must:
+`deploy/deploy.sh pki` copies the folder to the web root (see [Deploy](#deploy)). Whatever serves it must:
 
 - send `application/pkix-cert` for `.cer` and `application/pkix-crl` for `.crl`;
 - serve `.cer` and `.crl` over plain HTTP as well as HTTPS, without a redirect, because some clients fetch AIA and CDP URLs only over HTTP.
@@ -56,11 +57,15 @@ Copy the folder to the web root of the site. The server must:
 ### Revocation lists expire
 
 The CRLs are valid until **2027-11-04**. Regenerate them before that date, update the dates on the page,
-rebuild `SHA256SUMS` and publish all three together:
+rebuild `SHA256SUMS`, commit, and deploy all of them together:
 
 ```sh
 sha256sum *.cer *.crl *.pem > SHA256SUMS
+# on the host, after the push:
+cd /opt/attest-pki-website && git pull && deploy/deploy.sh pki && deploy/deploy.sh refresh
 ```
+
+`refresh` makes attest.encedo.com pick the new CRLs up at once instead of at the next daily run.
 
 ## Deploy
 
@@ -78,14 +83,19 @@ deploy/deploy.sh nginx      # install deploy/nginx/*, test, reload
 | file | installed as |
 |---|---|
 | `deploy/nginx/pki.encedo.com.conf` | `/etc/nginx/sites-available/pki.encedo.com` |
-| `deploy/nginx/attest.encedo.com.conf` | `/etc/nginx/sites-available/attest.encedo.com` |
-| `deploy/nginx/attest-limits.conf` | `/etc/nginx/conf.d/attest-limits.conf` (per-IP limits: POST 1/s burst 10, all 10/s burst 40, 10 connections) |
+| `deploy/nginx/attest.encedo.com.conf` | `/etc/nginx/sites-available/attest.encedo.com` (proxy to the container; request body up to 32 KB, the service itself takes 24 KB; SKID lookups not logged) |
+| `deploy/nginx/attest-limits.conf` | `/etc/nginx/conf.d/attest-limits.conf` (per-IP limits: POST 1/s burst 10, all requests 10/s burst 40, 10 connections; over the limit: 429) |
 | `deploy/nginx/attest-proxy.conf`, `pki-types.conf` | `/etc/nginx/snippets/` |
 | `deploy/attest-refresh.cron` | `/etc/cron.d/attest-refresh` (daily PKI sync + index rebuild) |
 
 The service data lives in `/srv/attest`, outside the repository and mounted read-only into the container:
 `issued/*.pem` are the device certificates issued by the Encedo Custody CA, `revoked.txt` the revoked SKIDs.
 The device certificates are never listed or served; the service only answers whether a given SKID is known.
+
+`issued/` is not filled automatically. The certificates are the `NN.pem` files the Custody CA writes next to its
+database (`ca/custody-ca/` on the signing host); copy the new ones into `/srv/attest/issued/` and run
+`deploy/deploy.sh refresh` to rebuild the index. A revoked device goes into `revoked.txt` (SKID, SHA-1 or SHA-256 hex,
+one per line) followed by the same `refresh`.
 
 TLS certificates come from Let's Encrypt (certbot, webroot `/var/www/acme`), renewed by `certbot.timer`.
 
