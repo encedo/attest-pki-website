@@ -1,0 +1,4 @@
+# /etc/cron.d/attest-refresh - daily: sync the Encedo PKI (CA certs + CRLs) and rebuild the SKID index
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+17 4 * * * root /opt/attest-pki-website/deploy/deploy.sh refresh >> /var/log/attest-refresh.log 2>&1

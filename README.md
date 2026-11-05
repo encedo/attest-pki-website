@@ -62,6 +62,33 @@ rebuild `SHA256SUMS` and publish all three together:
 sha256sum *.cer *.crl *.pem > SHA256SUMS
 ```
 
+## Deploy
+
+Both sites run on one host: nginx on the host serves pki.encedo.com from disk and terminates TLS for
+attest.encedo.com, which runs in Docker on `127.0.0.1:8080`. Everything comes from this repository,
+checked out at `/opt/attest-pki-website`:
+
+```sh
+cd /opt/attest-pki-website && git pull && deploy/deploy.sh          # all
+deploy/deploy.sh pki        # only the static PKI site
+deploy/deploy.sh attest     # rebuild the image, refresh the data, replace the container
+deploy/deploy.sh nginx      # install deploy/nginx/*, test, reload
+```
+
+| file | installed as |
+|---|---|
+| `deploy/nginx/pki.encedo.com.conf` | `/etc/nginx/sites-available/pki.encedo.com` |
+| `deploy/nginx/attest.encedo.com.conf` | `/etc/nginx/sites-available/attest.encedo.com` |
+| `deploy/nginx/attest-limits.conf` | `/etc/nginx/conf.d/attest-limits.conf` (per-IP limits: POST 1/s burst 10, all 10/s burst 40, 10 connections) |
+| `deploy/nginx/attest-proxy.conf`, `pki-types.conf` | `/etc/nginx/snippets/` |
+| `deploy/attest-refresh.cron` | `/etc/cron.d/attest-refresh` (daily PKI sync + index rebuild) |
+
+The service data lives in `/srv/attest`, outside the repository and mounted read-only into the container:
+`issued/*.pem` are the device certificates issued by the Encedo Custody CA, `revoked.txt` the revoked SKIDs.
+The device certificates are never listed or served; the service only answers whether a given SKID is known.
+
+TLS certificates come from Let's Encrypt (certbot, webroot `/var/www/acme`), renewed by `certbot.timer`.
+
 ## License
 
 [MIT](LICENSE)
