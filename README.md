@@ -53,6 +53,7 @@ openssl verify -crl_check_all -CAfile chain.pem -CRLfile crls.pem device.pem
 
 - send `application/pkix-cert` for `.cer` and `application/pkix-crl` for `.crl`;
 - serve `.cer` and `.crl` over plain HTTP as well as HTTPS, without a redirect, because some clients fetch AIA and CDP URLs only over HTTP.
+- send `Access-Control-Allow-Origin: *` on `.cer`, `.crl`, `.pem` and `SHA256SUMS`, so a browser page (hem-sdk-js) can fetch the chain and the revocation lists; they are public, nothing is behind a cookie.
 
 ### Revocation lists expire
 

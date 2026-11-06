@@ -43,14 +43,23 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 
 if ($path === '/v1/validate') {
-    if ($method !== 'POST') { send_json(405, ['error' => 'method']); exit; }
+    // CORS: the SDK calls this from a browser page; nothing is stored and no cookie is read, so any origin may ask
+    if ($method === 'OPTIONS') {
+        header('Access-Control-Allow-Origin: *');
+        header('Access-Control-Allow-Methods: POST, OPTIONS');
+        header('Access-Control-Allow-Headers: Content-Type');
+        header('Access-Control-Max-Age: 86400');
+        http_response_code(204);
+        exit;
+    }
+    if ($method !== 'POST') { send_json(405, ['error' => 'method'], true); exit; }
     $b = read_body();
-    if ($b === null) { send_json(413, ['error' => 'too large']); exit; }
+    if ($b === null) { send_json(413, ['error' => 'too large'], true); exit; }
     $in = json_decode($b, true);
-    if (!is_array($in) || !is_string($in['jwt'] ?? null) || (isset($in['crt']) && !is_string($in['crt']))) { send_json(400, ['error' => 'expected {"jwt": "...", "crt": "..." (optional)}']); exit; }
+    if (!is_array($in) || !is_string($in['jwt'] ?? null) || (isset($in['crt']) && !is_string($in['crt']))) { send_json(400, ['error' => 'expected {"jwt": "...", "crt": "..." (optional)}'], true); exit; }
     $r = attest_check($in['jwt']);
     $cert = ($r['ok'] && isset($in['crt'])) ? device_cert_check($in['crt'], $r['point']) : null;
-    send_json(200, attest_status($r, $cert));
+    send_json(200, attest_status($r, $cert), true);
     exit;
 }
 if (preg_match('#^/v1/skid/([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$#', $path, $m)) {
