@@ -12,17 +12,21 @@ One folder per site: pki.encedo.com is static, attest.encedo.com is a PHP servic
 ## pki.encedo.com
 
 ```
-Encedo Root CA             RSA 4096,    valid until 2040-12-31
-└─ Encedo Attestation CA   ECDSA P-256, valid until 2030-08-21
-   └─ Encedo Custody CA    ECDSA P-256, valid until 2030-08-21
-      └─ HEM device certificates
+Encedo Root CA                 RSA 4096,    valid until 2040-12-31
+└─ Encedo Attestation CA       ECDSA P-256, valid until 2030-08-21
+   ├─ Encedo Custody CA        ECDSA P-256, valid until 2030-08-21   -> HEM PPA device certificates
+   └─ Encedo EPA Custody CA    ECDSA P-256, valid until 2030-08-21   -> HEM EPA device certificates
 ```
+
+The issuer of a device certificate tells the model: Custody CA for a HEM PPA, EPA Custody CA for a HEM EPA.
+EPA device certificates carry AIA and CRL distribution points (`epa-custody-ca.cer`, `epa-custody-ca.crl`).
 
 | file | what |
 |---|---|
 | `*-ca.cer` | CA certificate, DER (the form named in the certificates' AIA fields) |
 | `*-ca.pem` | the same certificate, PEM |
-| `intermediates-chain.pem` | Custody CA + Attestation CA, in the order a client sends them |
+| `intermediates-chain.pem` | Custody CA + Attestation CA (HEM PPA), in the order a client sends them |
+| `epa-intermediates-chain.pem` | EPA Custody CA + Attestation CA (HEM EPA), in the order a client sends them |
 | `*-ca.crl` | revocation list of each CA, DER (the form named in the CRL distribution points) |
 | `SHA256SUMS` | SHA-256 of every file above |
 | `index.html` | the page; no scripts, no external resources |
@@ -36,14 +40,15 @@ cd pki.encedo.com
 sha256sum -c SHA256SUMS
 openssl x509 -in root-ca.pem -noout -fingerprint -sha256
 #   B2:8F:4E:E4:CF:26:02:82:60:CF:4F:0D:B1:8B:D2:FB:72:34:D1:72:92:57:97:DC:A7:F8:1E:53:A2:81:6E:9C
-openssl verify -CAfile root-ca.pem -untrusted intermediates-chain.pem device.pem
+openssl verify -CAfile root-ca.pem -untrusted intermediates-chain.pem device.pem        # HEM PPA
+openssl verify -CAfile root-ca.pem -untrusted epa-intermediates-chain.pem device.pem    # HEM EPA
 ```
 
 With revocation:
 
 ```sh
-cat root-ca.pem intermediates-chain.pem > chain.pem
-for c in root attestation custody; do openssl crl -inform DER -in $c-ca.crl; done > crls.pem
+cat root-ca.pem intermediates-chain.pem epa-custody-ca.pem > chain.pem
+for c in root attestation custody epa-custody; do openssl crl -inform DER -in $c-ca.crl; done > crls.pem
 openssl verify -crl_check_all -CAfile chain.pem -CRLfile crls.pem device.pem
 ```
 
@@ -57,7 +62,7 @@ openssl verify -crl_check_all -CAfile chain.pem -CRLfile crls.pem device.pem
 
 ### Revocation lists expire
 
-The CRLs are valid until **2027-11-04**. Regenerate them before that date, update the dates on the page,
+The CRLs are valid until **2027-11-04** (the EPA Custody CA's until 2027-11-06; renew all four together). Regenerate them before that date, update the dates on the page,
 rebuild `SHA256SUMS`, commit, and deploy all of them together:
 
 ```sh

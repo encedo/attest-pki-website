@@ -274,8 +274,8 @@
         <h1>Every HEM carries a certificate.<br><span class="quiet">Check it here.</span></h1>
         <p class="lede">
           Each Encedo HEM holds a key pair generated inside the device and a certificate
-          for it, issued by the Encedo Custody CA. This page publishes the whole chain up
-          to the root, with its revocation lists, so that any device can be checked
+          for it, issued by the Encedo Custody CA for a HEM PPA or by the Encedo EPA Custody CA
+          for a HEM EPA. This page publishes both chains up to the one root, with its revocation lists, so that any device can be checked
           against it with stock tools and nothing taken on our word.
         </p>
       </div>
@@ -289,13 +289,13 @@
           <div class="cline"><span class="c">[chain]</span></div>
           <div class="cline">Root        = <span class="k">Encedo Root CA</span> <span class="note">&middot; RSA 4096, to 2040</span></div>
           <div class="cline"> &boxur; issues  = <span class="k">Encedo Attestation CA</span> <span class="note">&middot; P-256, to 2030</span></div>
-          <div class="cline">   &boxur; issues = <span class="k">Encedo Custody CA</span> <span class="note">&middot; P-256, to 2030</span></div>
-          <div class="cline">     &boxur; issues = <span class="k">HEM device certificates</span></div>
+          <div class="cline">   &boxvr; issues = <span class="k">Encedo Custody CA</span> <span class="note">&middot; HEM PPA devices</span></div>
+          <div class="cline">   &boxur; issues = <span class="k">Encedo EPA Custody CA</span> <span class="note">&middot; HEM EPA devices</span></div>
           <div class="cline">&nbsp;</div>
           <div class="cline"><span class="c">[verify]</span></div>
           <div class="cline in">$ openssl verify -CAfile <span class="k">root-ca.pem</span> \</div>
           <div class="cline in">    -untrusted <span class="k">intermediates-chain.pem</span> device.pem</div>
-          <div class="cline">device.pem: OK</div>
+          <div class="cline">device.pem: OK <span class="note">&middot; HEM EPA: epa-intermediates-chain.pem</span></div>
         </div>
       </div>
     </div>
@@ -306,7 +306,7 @@
   <div class="wrap stack-l">
     <div class="stack-s measure">
       <p class="eyebrow">Certificate authorities</p>
-      <h2>Three authorities, one chain.</h2>
+      <h2>Four authorities, one root.</h2>
       <p class="body-soft">
         Each certificate is published in DER (<code>.cer</code>, the form named in the
         certificates' own AIA fields) and in PEM. Compare the SHA-256 fingerprint with the
@@ -334,7 +334,7 @@
         <div class="lead">
           <span class="role">Intermediate</span>
           <h3>Encedo Attestation CA</h3>
-          <p>Issued by the Root CA. Signs the Custody CA.</p>
+          <p>Issued by the Root CA. Signs the two issuing CAs, one per HEM model.</p>
           <div class="dl"><a href="attestation-ca.cer">attestation-ca.cer</a><a href="attestation-ca.pem">attestation-ca.pem</a></div>
         </div>
         <dl class="spec">
@@ -347,9 +347,9 @@
 
       <div class="ca">
         <div class="lead">
-          <span class="role">Issuing CA</span>
+          <span class="role">Issuing CA &middot; HEM PPA</span>
           <h3>Encedo Custody CA</h3>
-          <p>Issued by the Attestation CA. Signs the certificates of HEM devices; it issues no further CAs.</p>
+          <p>Issued by the Attestation CA. Signs the certificates of HEM PPA devices; it issues no further CAs.</p>
           <div class="dl"><a href="custody-ca.cer">custody-ca.cer</a><a href="custody-ca.pem">custody-ca.pem</a></div>
         </div>
         <dl class="spec">
@@ -359,11 +359,28 @@
           <div class="row"><dt>SKI</dt><dd class="fp">79:55:57:8E:95:AD:27:B5:3B:06:C9:C2:CA:1C:02:36:A8:0E:7C:06</dd></div>
         </dl>
       </div>
+
+      <div class="ca">
+        <div class="lead">
+          <span class="role">Issuing CA &middot; HEM EPA</span>
+          <h3>Encedo EPA Custody CA</h3>
+          <p>Issued by the Attestation CA. Signs the certificates of HEM EPA devices; it issues no further CAs. Its device certificates name it in their AIA and CRL distribution points.</p>
+          <div class="dl"><a href="epa-custody-ca.cer">epa-custody-ca.cer</a><a href="epa-custody-ca.pem">epa-custody-ca.pem</a></div>
+        </div>
+        <dl class="spec">
+          <div class="row"><dt>Key</dt><dd>ECDSA P-256</dd></div>
+          <div class="row"><dt>Valid</dt><dd>2026-11-06 &ndash; 2030-08-21</dd></div>
+          <div class="row"><dt>SHA-256</dt><dd class="fp">FA:6B:16:88:B8:6E:6E:6E:3B:DF:F8:EF:EC:29:DE:3D:77:EB:8B:DD:11:23:7C:72:3F:16:E1:AD:85:F5:59:1E</dd></div>
+          <div class="row"><dt>SKI</dt><dd class="fp">83:C8:3D:3E:E2:AC:A9:C9:D6:3F:BC:E7:44:E9:7A:88:EC:B6:83:18</dd></div>
+        </dl>
+      </div>
     </div>
 
     <p class="body-soft measure">
       <a href="intermediates-chain.pem"><code>intermediates-chain.pem</code></a> holds the
-      Custody CA and the Attestation CA, in the order a client sends them.
+      Custody CA and the Attestation CA (HEM PPA),
+      <a href="epa-intermediates-chain.pem"><code>epa-intermediates-chain.pem</code></a> the
+      EPA Custody CA and the Attestation CA (HEM EPA), each in the order a client sends them.
     </p>
   </div>
 </section>
@@ -385,6 +402,7 @@
       <div class="item"><dt>Encedo Root CA</dt><dd><a href="root-ca.crl">root-ca.crl</a></dd><dd>next update 2027-11-04</dd></div>
       <div class="item"><dt>Encedo Attestation CA</dt><dd><a href="attestation-ca.crl">attestation-ca.crl</a></dd><dd>next update 2027-11-04</dd></div>
       <div class="item"><dt>Encedo Custody CA</dt><dd><a href="custody-ca.crl">custody-ca.crl</a></dd><dd>next update 2027-11-04</dd></div>
+      <div class="item"><dt>Encedo EPA Custody CA</dt><dd><a href="epa-custody-ca.crl">epa-custody-ca.crl</a></dd><dd>next update 2027-11-06</dd></div>
     </dl>
   </div>
 </section>
@@ -414,13 +432,13 @@
       </div>
       <div class="step">
         <span class="n">3 &middot; the device</span>
-        <p>Verify the device certificate against the chain.</p>
+        <p>Verify the device certificate against its chain: <code>intermediates-chain.pem</code> for a HEM PPA, <code>epa-intermediates-chain.pem</code> for a HEM EPA.</p>
         <div class="cmd"><pre><span class="l"><span class="p">$</span> openssl verify -CAfile root-ca.pem -untrusted intermediates-chain.pem device.pem</span><span class="l"><span class="o">device.pem: OK</span></span></pre></div>
       </div>
       <div class="step">
         <span class="n">4 &middot; revocation</span>
-        <p>Check the same chain with every revocation list applied.</p>
-        <div class="cmd"><pre><span class="l"><span class="p">$</span> cat root-ca.pem intermediates-chain.pem &gt; chain.pem</span><span class="l"><span class="p">$</span> for c in root attestation custody; do openssl crl -inform DER -in $c-ca.crl; done &gt; crls.pem</span><span class="l"><span class="p">$</span> openssl verify -crl_check_all -CAfile chain.pem -CRLfile crls.pem device.pem</span><span class="l"><span class="o">device.pem: OK</span></span></pre></div>
+        <p>Check the chain with every revocation list applied; the same commands serve both models.</p>
+        <div class="cmd"><pre><span class="l"><span class="p">$</span> cat root-ca.pem intermediates-chain.pem epa-custody-ca.pem &gt; chain.pem</span><span class="l"><span class="p">$</span> for c in root attestation custody epa-custody; do openssl crl -inform DER -in $c-ca.crl; done &gt; crls.pem</span><span class="l"><span class="p">$</span> openssl verify -crl_check_all -CAfile chain.pem -CRLfile crls.pem device.pem</span><span class="l"><span class="o">device.pem: OK</span></span></pre></div>
       </div>
     </div>
   </div>
