@@ -12,6 +12,7 @@
 const ROOT_SHA256 = 'b28f4ee4cf26028260cf4f0db18bd2fb7234d172925797dca7f81e53a2816e9c';   // Encedo Root CA, DER
 const PKI_CA = ['root-ca', 'attestation-ca', 'custody-ca', 'epa-custody-ca'];
 const PKI_ISSUING = ['custody-ca' => 'PPA', 'epa-custody-ca' => 'EPA'];   // issuing CA -> HEM model it signs
+const PKI_ASSURANCE = ['PPA' => 'hard', 'EPA' => 'soft'];   // DEV-509: HEM model -> attestation assurance (secure element per chip / module)
 const MAX_CRT = 4096;
 
 function pem_to_der(string $pem): ?string {
@@ -97,18 +98,49 @@ function device_cert_check(string $in, ?string $point): array {
                   'key_match' => $cpt !== null && $point !== null && hash_equals($cpt, $point), 'model' => ''];
     if (!$r['cert']['key_match']) { $r['why'] = 'certificate key != jwk'; return $r; }
     if (!pki_ready()) { $r['state'] = 'unavailable'; return $r; }
+    if (skid_revoked($r['cert']['skid'])) { $r['state'] = 'revoked'; return $r; }   // DEV-509: revoked.txt also with the certificate (was: CRLs only)
 
     $ica = issuing_ca(openssl_x509_parse($pem));
-    if ($ica === null) { $r['why'] = 'issuer: not an Encedo issuing CA'; return $r; }
+    if ($ica === null) return hem_epa_check($pem, $r);   // DEV-509: not issued by a CA - an EPA HEM certificate signed by its board
 
+    [$rc, $out] = chain_verify($pem, $ica[0]);
+    if ($rc === 0) { $r['state'] = 'ok'; $r['cert']['model'] = $ica[1]; $r['assurance'] = PKI_ASSURANCE[$ica[1]]; }   // the model only once the chain holds
+    elseif (stripos($out, 'revoked') !== false) $r['state'] = 'revoked';
+    else $r['why'] = 'chain: ' . $out;
+    return $r;
+}
+
+// DEV-509: openssl verify of a certificate through its issuing CA and the Attestation CA up to the pinned root, CRLs of all CAs
+// (was inline in device_cert_check); [exit code, output]
+function chain_verify(string $pem, string $ica): array {
     $d = data_dir();
     $tmp = tempnam(sys_get_temp_dir(), 'crt'); $chain = tempnam(sys_get_temp_dir(), 'chn');
     file_put_contents($tmp, $pem);
-    file_put_contents($chain, file_get_contents("$d/pki/{$ica[0]}.pem") . file_get_contents("$d/pki/attestation-ca.pem"));
-    [$rc, $out] = ossl_run(array_merge(['verify', '-no_check_time', '-crl_check_all'], crl_args("$d/crl"), ['-CAfile', "$d/pki/root-ca.pem", '-untrusted', $chain, $tmp]));
+    file_put_contents($chain, file_get_contents("$d/pki/$ica.pem") . file_get_contents("$d/pki/attestation-ca.pem"));
+    $res = ossl_run(array_merge(['verify', '-no_check_time', '-crl_check_all'], crl_args("$d/crl"), ['-CAfile', "$d/pki/root-ca.pem", '-untrusted', $chain, $tmp]));
     @unlink($tmp); @unlink($chain);
-    if ($rc === 0) { $r['state'] = 'ok'; $r['cert']['model'] = $ica[1]; }   // the model only once the chain holds
-    elseif (stripos($out, 'revoked') !== false) $r['state'] = 'revoked';
-    else $r['why'] = 'chain: ' . $out;
+    return $res;
+}
+
+// DEV-509: EPA HEM attestation certificate - signed by ATECC slot 0 of the EPA module, the key of the board certificate (EPA Custody CA).
+// The X.509 path is broken on purpose (board CA:FALSE, no CA key on the module); the link is checked here: the board is found by the
+// AKID (= SHA-1 of the board key) in issued/, issuer = board subject, the signature verifies with the board key, the board chains to
+// the EPA Custody CA with CRLs and neither is revoked. A revoked board cuts off every HEM certificate it signed.
+function hem_epa_check(string $pem, array $r): array {
+    $c = openssl_x509_parse($pem);
+    $board = board_find(key_id_hex($c['extensions']['authorityKeyIdentifier'] ?? ''));
+    if ($board === null) { $r['why'] = 'issuer: not an Encedo issuing CA, no registered board'; return $r; }
+    $b = openssl_x509_parse($board);
+    $bica = issuing_ca($b);
+    if ($bica === null || $bica[1] !== 'EPA') { $r['why'] = 'board: not issued by the EPA Custody CA'; return $r; }
+    if ($c['issuer'] != $b['subject']) { $r['why'] = 'issuer != board subject'; return $r; }
+    if (openssl_x509_verify($pem, $board) !== 1) { $r['why'] = 'signature: not the board key'; return $r; }
+    [$rc, $out] = chain_verify($board, $bica[0]);
+    if ($rc !== 0) {
+        if (stripos($out, 'revoked') !== false) $r['state'] = 'revoked'; else $r['why'] = 'board chain: ' . $out;
+        return $r;
+    }
+    $r['state'] = 'ok'; $r['cert']['model'] = 'EPA'; $r['assurance'] = PKI_ASSURANCE['EPA'];
+    $r['cert']['board'] = ['subject' => $b['subject']['CN'] ?? '', 'issuer' => $b['issuer']['CN'] ?? '', 'serial' => strtolower($b['serialNumberHex'] ?? '')];
     return $r;
 }

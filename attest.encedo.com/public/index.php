@@ -3,7 +3,7 @@
  * attest.encedo.com - stateless attestation JWT validation (DEV-498).
  *   GET  /                 form: paste a JWT (and optionally the device certificate), Validate
  *   POST /                 form result: status + JWT content table (+ device certificate)
- *   POST /v1/validate      {"jwt": "...", "crt": "..."?} -> {"status": "valid|valid_unverified|invalid", "expired": bool}
+ *   POST /v1/validate      {"jwt": "...", "crt": "..."?} -> {"status": "valid|valid_unverified|invalid", "expired": bool, "assurance": "hard|soft" (with valid, DEV-509)}
  *   GET  /v1/skid/<hex>    {"known": bool}  (SHA-1 or SHA-256 of 04||x||y of the device key)
  *   GET  /v1/pki           {"certificates": [...]}  Encedo CA certificates for offline chain validation
  * Run: php -d extension=pdo_sqlite -S localhost:8080 public/index.php
@@ -135,14 +135,18 @@ if ($res && $res['body'] !== null && $res['hdr'] !== null) {
     if ($cert && $cert['cert']) {
         $ce = $cert['cert'];
         $chk = match ($cert['state']) {
-            'ok' => '<span class="ok">verified</span>: ' . h($ce['issuer']) . ' (HEM ' . h($ce['model']) . ') → Attestation CA → Root CA, CRLs checked',
+            'ok' => isset($ce['board'])   // DEV-509: EPA HEM certificate signed by its board (X.509 path broken on purpose)
+                ? '<span class="ok">verified</span>: signed by the board ' . h($ce['board']['subject']) . ' → ' . h($ce['board']['issuer']) . ' (HEM EPA) → Attestation CA → Root CA, CRLs checked'
+                : '<span class="ok">verified</span>: ' . h($ce['issuer']) . ' (HEM ' . h($ce['model']) . ') → Attestation CA → Root CA, CRLs checked',
             'revoked' => '<span class="no">revoked</span> (CRL)',
             'unavailable' => 'not checked: the Encedo PKI is not available on this server',
             default => $ce['key_match'] ? '<span class="no">not issued by the Encedo PKI</span>' : '<span class="no">another key than the token (jwk)</span>',
         };
         $tables .= table('Device certificate', ['subject' => '<code>' . h($ce['subject']) . '</code>', 'issuer' => h($ce['issuer']), 'serial' => '<code>' . h($ce['serial']) . '</code>',
             'issued' => h(gmdate('Y-m-d', (int)$ce['from'])), 'notAfter' => h(gmdate('Y-m-d', (int)$ce['to'])) . ' <span class="dim">(does not limit validity: a HEM cannot renew its certificate)</span>',
-            'key = jwk' => $ce['key_match'] ? '<span class="ok">yes</span>' : '<span class="no">no</span>', 'chain' => $chk]);
+            'key = jwk' => $ce['key_match'] ? '<span class="ok">yes</span>' : '<span class="no">no</span>', 'chain' => $chk]
+            + (isset($cert['assurance']) ? ['assurance' => h($cert['assurance']) . ' <span class="dim">(' . ($cert['assurance'] === 'hard' ? 'secure element in every HEM' : 'EPA module: one secure element for the board') . ')</span>'] : []));   // DEV-509
+        if (isset($ce['board'])) $tables .= table('Board certificate', ['subject' => '<code>' . h($ce['board']['subject']) . '</code>', 'issuer' => h($ce['board']['issuer']), 'serial' => '<code>' . h($ce['board']['serial']) . '</code>']);   // DEV-509
     } elseif ($cert) {
         $tables .= table('Device certificate', ['input' => '<span class="no">not a certificate</span>']);
     }
@@ -162,7 +166,8 @@ if ($res && $res['body'] !== null && $res['hdr'] !== null) {
 $verdict = '';
 if ($st) {
     $s = $st['status']; $exp = $st['expired'] ?? false; $byCert = $cert && $cert['state'] === 'ok';
-    $how = $byCert ? 'The device certificate chains to the Encedo Root CA and is not revoked.' : 'Its device key is known to Encedo.';
+    $how = $byCert ? (isset($cert['cert']['board']) ? 'The HEM certificate is signed by an EPA module whose board certificate chains to the Encedo Root CA; nothing is revoked.' : 'The device certificate chains to the Encedo Root CA and is not revoked.') : 'Its device key is known to Encedo.';   // DEV-509
+    if (isset($st['assurance'])) $how .= ' Assurance: ' . $st['assurance'] . '.';   // DEV-509
     [$cls, $title, $text] = match (true) {
         $s === 'invalid' => ['bad', 'Invalid', 'This is not a valid Encedo attestation' . ($cert ? ' for this device certificate.' : '.')],
         $s === 'valid' && !$exp => ['good', 'Valid', "Signed by a genuine Encedo device. $how"],
@@ -296,7 +301,7 @@ header('Cache-Control: no-store');
     <p class="eyebrow">Integration</p>
     <h2>The same checks over HTTP.</h2>
     <dl class="api">
-      <dt>POST /v1/validate</dt><dd><code>{"jwt": "...", "crt": "..."}</code> (crt optional) &rarr; <code>{"status": "valid" | "valid_unverified" | "invalid", "expired": bool}</code></dd>
+      <dt>POST /v1/validate</dt><dd><code>{"jwt": "...", "crt": "..."}</code> (crt optional) &rarr; <code>{"status": "valid" | "valid_unverified" | "invalid", "expired": bool, "assurance": "hard" | "soft"}</code> (assurance with valid: hard = HEM PPA, soft = HEM EPA)</dd>
       <dt>GET /v1/skid/&lt;hex&gt;</dt><dd>Is a device key (SHA-1 or SHA-256 of <code>04&#8214;x&#8214;y</code>) known to Encedo: <code>{"known": bool}</code></dd>
       <dt>GET /v1/pki</dt><dd>The Encedo CA certificates for offline validation; CRLs and fingerprints at <a href="https://pki.encedo.com/">pki.encedo.com</a></dd>
     </dl>
