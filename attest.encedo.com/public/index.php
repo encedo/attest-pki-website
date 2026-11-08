@@ -135,7 +135,7 @@ if ($res && $res['body'] !== null && $res['hdr'] !== null) {
     if ($cert && $cert['cert']) {
         $ce = $cert['cert'];
         $chk = match ($cert['state']) {
-            'ok' => '<span class="ok">verified</span>: Encedo Custody CA → Attestation CA → Root CA, CRLs checked',
+            'ok' => '<span class="ok">verified</span>: ' . h($ce['issuer']) . ' (HEM ' . h($ce['model']) . ') → Attestation CA → Root CA, CRLs checked',
             'revoked' => '<span class="no">revoked</span> (CRL)',
             'unavailable' => 'not checked: the Encedo PKI is not available on this server',
             default => $ce['key_match'] ? '<span class="no">not issued by the Encedo PKI</span>' : '<span class="no">another key than the token (jwk)</span>',

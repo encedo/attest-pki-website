@@ -1,14 +1,17 @@
 <?php
 /*
  * The device certificate against the Encedo PKI (https://pki.encedo.com, synced by tools/sync_pki.php):
- *   chain device -> Encedo Custody CA -> Encedo Attestation CA -> Encedo Root CA (pinned by SHA-256 of its DER),
- *   CRLs of all three CAs, and the certificate key = the jwk of the token.
+ *   chain device -> issuing CA -> Encedo Attestation CA -> Encedo Root CA (pinned by SHA-256 of its DER),
+ *   CRLs of all four CAs, and the certificate key = the jwk of the token.
+ * Two issuing CAs, one per HEM model: Encedo Custody CA signs HEM PPA, Encedo EPA Custody CA signs HEM EPA.
+ * The device certificate's authorityKeyIdentifier picks the issuing CA; openssl verify then checks the signatures.
  * The certificate date does not limit validity: a HEM cannot renew its certificate, so only the CA signatures and the CRLs count
  * (openssl verify -no_check_time).
  */
 
 const ROOT_SHA256 = 'b28f4ee4cf26028260cf4f0db18bd2fb7234d172925797dca7f81e53a2816e9c';   // Encedo Root CA, DER
-const PKI_CA = ['root-ca', 'attestation-ca', 'custody-ca'];
+const PKI_CA = ['root-ca', 'attestation-ca', 'custody-ca', 'epa-custody-ca'];
+const PKI_ISSUING = ['custody-ca' => 'PPA', 'epa-custody-ca' => 'EPA'];   // issuing CA -> HEM model it signs
 const MAX_CRT = 4096;
 
 function pem_to_der(string $pem): ?string {
@@ -63,6 +66,22 @@ function crt_parse(string $in): ?string {
     return @openssl_x509_read($pem) ? $pem : null;
 }
 
+// a key identifier from openssl_x509_parse ("keyid:83:C8:..." or "83:C8:...") as lowercase hex
+function key_id_hex(string $s): string {
+    return strtolower(preg_replace('/[^0-9a-f]/i', '', preg_replace('/^\s*keyid:/i', '', strtok($s, "\n") ?: '')));
+}
+
+// the issuing CA the certificate names in its authorityKeyIdentifier: [name, model], or null if it is none of ours
+function issuing_ca(array $parsed): ?array {
+    $aki = key_id_hex($parsed['extensions']['authorityKeyIdentifier'] ?? '');
+    if ($aki === '') return null;
+    foreach (PKI_ISSUING as $n => $model) {
+        $ca = @openssl_x509_parse((string)@file_get_contents(data_dir() . "/pki/$n.pem"));
+        if ($ca && key_id_hex($ca['extensions']['subjectKeyIdentifier'] ?? '') === $aki) return [$n, $model];
+    }
+    return null;
+}
+
 // state: 'ok' | 'revoked' | 'invalid' (not a certificate, another key than the token, not issued by the Encedo PKI) | 'unavailable' (PKI not synced)
 // cert: what the page shows (null if the input is not a certificate)
 function device_cert_check(string $in, ?string $point): array {
@@ -75,17 +94,20 @@ function device_cert_check(string $in, ?string $point): array {
         ? "\x04" . str_pad($k['ec']['x'], 32, "\0", STR_PAD_LEFT) . str_pad($k['ec']['y'], 32, "\0", STR_PAD_LEFT) : null;
     $r['cert'] = ['subject' => $c['subject']['commonName'] ?? '', 'issuer' => $c['issuer']['commonName'] ?? '', 'serial' => strtolower($c['serialNumberHex'] ?? ''),
                   'from' => $c['validFrom_time_t'] ?? 0, 'to' => $c['validTo_time_t'] ?? 0, 'skid' => $cpt ? sha1($cpt) : '',
-                  'key_match' => $cpt !== null && $point !== null && hash_equals($cpt, $point)];
+                  'key_match' => $cpt !== null && $point !== null && hash_equals($cpt, $point), 'model' => ''];
     if (!$r['cert']['key_match']) { $r['why'] = 'certificate key != jwk'; return $r; }
     if (!pki_ready()) { $r['state'] = 'unavailable'; return $r; }
+
+    $ica = issuing_ca(openssl_x509_parse($pem));
+    if ($ica === null) { $r['why'] = 'issuer: not an Encedo issuing CA'; return $r; }
 
     $d = data_dir();
     $tmp = tempnam(sys_get_temp_dir(), 'crt'); $chain = tempnam(sys_get_temp_dir(), 'chn');
     file_put_contents($tmp, $pem);
-    file_put_contents($chain, file_get_contents("$d/pki/custody-ca.pem") . file_get_contents("$d/pki/attestation-ca.pem"));
+    file_put_contents($chain, file_get_contents("$d/pki/{$ica[0]}.pem") . file_get_contents("$d/pki/attestation-ca.pem"));
     [$rc, $out] = ossl_run(array_merge(['verify', '-no_check_time', '-crl_check_all'], crl_args("$d/crl"), ['-CAfile', "$d/pki/root-ca.pem", '-untrusted', $chain, $tmp]));
     @unlink($tmp); @unlink($chain);
-    if ($rc === 0) $r['state'] = 'ok';
+    if ($rc === 0) { $r['state'] = 'ok'; $r['cert']['model'] = $ica[1]; }   // the model only once the chain holds
     elseif (stripos($out, 'revoked') !== false) $r['state'] = 'revoked';
     else $r['why'] = 'chain: ' . $out;
     return $r;

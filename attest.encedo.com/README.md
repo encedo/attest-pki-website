@@ -11,9 +11,10 @@ Stateless validation of Encedo HEM attestation tokens (`POST /api/system/config/
 | `GET /v1/pki` | `{"certificates": [{subject, issuer, not_after, sha256, pem}]}` - Encedo CA certificates |
 
 Device certificate (`crt` of `GET /api/system/config/attestation`: base64 DER, PEM, or the whole reply): when it is sent, it alone decides the device part.
-It must chain device → Encedo Custody CA → Encedo Attestation CA → Encedo Root CA (pinned: SHA-256 of the DER `b28f4ee4…6e9c`), pass the CRLs of all three CAs,
+It must chain device → issuing CA → Encedo Attestation CA → Encedo Root CA (pinned: SHA-256 of the DER `b28f4ee4…6e9c`), pass the CRLs of all four CAs,
 and its key must be the `jwk` of the token; otherwise the status is `invalid`. The certificate date does not limit validity (a HEM cannot renew its certificate;
 `openssl verify -no_check_time`). Without `crt` the SKID index below is used.
+The issuing CA tells the HEM model: Encedo Custody CA for a HEM PPA, Encedo EPA Custody CA for a HEM EPA (the form shows it; the API answer does not change).
 
 Status:
 - `valid`: the JWT is intact (ES256 by its `jwk`, header `kid` = hash of `jwk`, claims, signature PoP if present) and the device key belongs to a not revoked Encedo device certificate (the `crt` sent, or the index).
@@ -28,8 +29,8 @@ Nothing is stored and no JWT is logged. Body limit 24 KB. Every answer carries `
 ## Data (read-only)
 
 ```
-pki/*.pem        Encedo CA certificates, published by /v1/pki (root-ca, attestation-ca, custody-ca from tools/sync_pki.php)
-crl/*.crl.pem    CRLs of the three CAs (tools/sync_pki.php)
+pki/*.pem        Encedo CA certificates, published by /v1/pki (root-ca, attestation-ca, custody-ca, epa-custody-ca from tools/sync_pki.php)
+crl/*.crl.pem    CRLs of the four CAs (tools/sync_pki.php)
 issued/*.pem     issued device certificates (input of the index)
 revoked.txt      revoked device SKIDs, one hex per line
 data/index.sqlite  built by tools/build_index.php, the only thing the service reads for lookups

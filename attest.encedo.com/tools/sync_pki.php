@@ -1,8 +1,9 @@
 <?php
 /*
  * Fetches the Encedo PKI from https://pki.encedo.com into the data dir (ATTEST_DATA, default: the project root):
- *   pki/root-ca.pem, pki/attestation-ca.pem, pki/custody-ca.pem   CA certificates (published by /v1/pki, used for the chain)
- *   crl/root-ca.crl.pem, crl/attestation-ca.crl.pem, crl/custody-ca.crl.pem   CRLs (PEM, for openssl verify -crl_check_all)
+ *   pki/<ca>.pem      CA certificates (published by /v1/pki, used for the chain)
+ *   crl/<ca>.crl.pem  CRLs (PEM, for openssl verify -crl_check_all)
+ *   <ca> = root-ca, attestation-ca, custody-ca (HEM PPA), epa-custody-ca (HEM EPA): PKI_CA in lib/pki.php
  *   php tools/sync_pki.php [base URL]
  * Every file is checked against SHA256SUMS, the root against the pinned fingerprint (ROOT_SHA256 in lib/pki.php), and the whole set with
  * openssl verify before anything is replaced. Run it from cron (the CRLs are reissued yearly; nextUpdate is shown on the page).
@@ -42,8 +43,9 @@ foreach (PKI_CA as $name) {
     file_put_contents("$tmp/crl/$name.crl.pem", $crl);
 }
 
-// the intermediates chain up to the pinned root, with all CRLs (a revoked intermediate fails here)
-[$rc, $out] = ossl_run(array_merge(['verify', '-crl_check_all'], crl_args("$tmp/crl"), ['-CAfile', "$tmp/pki/root-ca.pem", '-untrusted', "$tmp/pki/attestation-ca.pem", "$tmp/pki/custody-ca.pem"]));
+// both issuing CAs up to the pinned root through the Attestation CA, with all CRLs (a revoked intermediate fails here)
+$issuing = array_map(fn($n) => "$tmp/pki/$n.pem", array_keys(PKI_ISSUING));
+[$rc, $out] = ossl_run(array_merge(['verify', '-crl_check_all'], crl_args("$tmp/crl"), ['-CAfile', "$tmp/pki/root-ca.pem", '-untrusted', "$tmp/pki/attestation-ca.pem"], $issuing));
 if ($rc !== 0) fail("chain check: $out");
 
 $dst = data_dir();
