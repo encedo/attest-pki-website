@@ -126,6 +126,9 @@ seen on that domain - the one to look at first). One run, one alert, with a `crt
   secret, in `/etc/ct-watch/kuma.url` (mode 600), not in git.
 - **`/etc/ct-watch/notify`**, an executable getting the full text on stdin; on attest it hands it to the onchato bot.
 
+An alert that does not get through (Kuma unreachable, the hook failing) is kept in the state and sent again every run,
+even during a rate-limit wait, until it does; meanwhile Kuma gets no `up`. A new certificate joins a pending Kuma alert.
+
 State: `/var/lib/ct-watch/state.json` (last id, names and issuers per domain, the latest reports).
 `python3 ct-watch/ct_watch.py status` shows the last run and the latest certificates. A domain added to the list gets
 its own silent baseline. Tests: `python3 ct-watch/test_ct_watch.py` (no network).

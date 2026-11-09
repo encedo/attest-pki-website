@@ -211,7 +211,7 @@ def kuma_push(conf, status, msg, timeout=30):
         with open(os.path.join(conf, 'kuma.url')) as f:
             url = f.read().strip()
     except FileNotFoundError:
-        return 'no kuma.url'
+        return None                   # not configured: nothing to deliver (deploy.sh says so)
     base = url.split('?', 1)[0]
     q = urllib.parse.urlencode({'status': status, 'msg': msg, 'ping': ''})
     req = urllib.request.Request(base + '?' + q, headers={'User-Agent': UA})
@@ -226,7 +226,7 @@ def kuma_push(conf, status, msg, timeout=30):
 def notify(conf, text, timeout=120):
     hook = os.path.join(conf, 'notify')
     if not os.access(hook, os.X_OK):
-        return 'no notify hook'
+        return None                   # not configured: nothing to deliver
     try:
         p = subprocess.run([hook], input=text.encode(), timeout=timeout,
                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -256,16 +256,16 @@ def run(args, fetch=fetch_api, push=kuma_push, hook=notify, now=None):
     state = load_state(path)
     wait = state.get('backoff_until')
     if wait and now < wait:          # rate limited: do not spend the next allowance on a sure refusal
-        print('rate limited until %s, not asking' % wait)
-        return 1
-    state.pop('backoff_until', None)
-    new, errors = scan(domains, state, fetch, now)
+        new, errors = [], ['rate limited until %s, not asking' % wait]
+    else:
+        state.pop('backoff_until', None)
+        new, errors = scan(domains, state, fetch, now)
     state['last_run'] = now
     state['last_errors'] = errors
     if not errors:
         state['last_ok'] = now
     state['recent'] = (state['recent'] + new)[-RECENT:]
-    save_state(path, state)          # before alerting: a failed alert must not repeat a report forever
+    save_state(path, state)          # the scan is recorded before alerting; an undelivered alert is kept below
 
     for d in domains:
         ds = state['domains'].get(d, {})
@@ -273,16 +273,31 @@ def run(args, fetch=fetch_api, push=kuma_push, hook=notify, now=None):
             print('%s: baseline, %d certificates recorded' % (d, ds.get('baseline_count', 0)))
     for e in errors:
         print('error: %s' % e)
+    # An alert that did not get through is kept in the state and sent again every run until it
+    # does: the certificates themselves are already recorded and would never be reported again.
+    # Kuma stays "down" (no "up") while its alert is pending, and for the run that delivered it.
+    kuma = state.pop('kuma_pending', None)
+    text = state.pop('notify_pending', None)
     if new:
-        text = message(new)
-        sys.stdout.write(text)
-        for problem in (push(args.conf, 'down', kuma_summary(new)), hook(args.conf, text)):
-            if problem:
-                print('alert: %s' % problem)
+        sys.stdout.write(message(new))
+        kuma = kuma_summary(new) + (' | earlier: ' + kuma if kuma else '')
+        kuma = kuma if len(kuma) <= 180 else kuma[:177] + '...'
+        text = (text + '\n' if text else '') + message(new)
+    if kuma:
+        problem = push(args.conf, 'down', kuma)
+        if problem:
+            print('alert: %s (kept, sent again next run)' % problem)
+            state['kuma_pending'] = kuma
     elif not errors:
         problem = push(args.conf, 'up', 'OK, %d domains, nothing new' % len(domains))
         if problem:
             print('alert: %s' % problem)
+    if text:
+        problem = hook(args.conf, text)
+        if problem:
+            print('alert: %s (kept, sent again next run)' % problem)
+            state['notify_pending'] = text[-20000:]
+    save_state(path, state)
     return 1 if errors else 0
 
 
