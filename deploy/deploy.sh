@@ -1,13 +1,15 @@
 #!/bin/sh
 # Deploy pki.encedo.com and attest.encedo.com on the attest host from this checkout.
 #
-#   cd /opt/attest-pki-website && git pull && deploy/deploy.sh [all|pki|nginx|attest|refresh]
+#   cd /opt/attest-pki-website && git pull && deploy/deploy.sh [all|pki|nginx|attest|refresh|ctwatch]
 #
 #   pki      copy pki.encedo.com/ to the web root (after checking SHA256SUMS)
 #   nginx    install the nginx configs from deploy/nginx/, test, reload (rolls back on a failed test)
 #   attest   build the image from attest.encedo.com/, refresh the data, replace the container
 #            (the previous container is started again if the new one does not answer)
 #   refresh  sync the PKI from https://pki.encedo.com and rebuild the SKID index (cron, daily)
+#   ctwatch  test ct-watch/ and install its hourly cron (public TLS certificates of our domains in CT);
+#            the first run records a baseline and reports nothing
 #   all      pki + nginx + attest (default)
 #
 # Runs as root. Data outside the repo, in $DATA:
@@ -119,6 +121,17 @@ deploy_attest() {
     fi
 }
 
+deploy_ctwatch() {
+    python3 "$REPO/ct-watch/test_ct_watch.py" >/dev/null 2>&1 || { python3 "$REPO/ct-watch/test_ct_watch.py"; exit 1; }
+    # state, and the secrets: kuma.url (push URL), notify (hook getting the alert on stdin)
+    install -d -m 700 /var/lib/ct-watch /etc/ct-watch
+    install -m 644 "$REPO/deploy/ct-watch.cron" /etc/cron.d/ct-watch
+    [ -f /var/lib/ct-watch/state.json ] || log "ctwatch: no state yet, the first run records the baseline"
+    log "ctwatch: hourly cron in /etc/cron.d/ct-watch, log /var/log/ct-watch.log"
+    [ -f /etc/ct-watch/kuma.url ] || log "ctwatch: no /etc/ct-watch/kuma.url - no Kuma alerts"
+    [ -x /etc/ct-watch/notify ] || log "ctwatch: no /etc/ct-watch/notify - no hook alerts"
+}
+
 run_container() {
     # loopback only: a port published on 0.0.0.0 by Docker bypasses ufw
     docker run -d --name "$NAME" --restart unless-stopped \
@@ -135,6 +148,7 @@ case "${1:-all}" in
     nginx)   deploy_nginx ;;
     attest)  deploy_attest ;;
     refresh) refresh ;;
+    ctwatch) deploy_ctwatch ;;
     all)     deploy_pki; deploy_attest; deploy_nginx ;;
-    *)       echo "usage: $0 [all|pki|nginx|attest|refresh]" >&2; exit 2 ;;
+    *)       echo "usage: $0 [all|pki|nginx|attest|refresh|ctwatch]" >&2; exit 2 ;;
 esac

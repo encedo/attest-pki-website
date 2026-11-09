@@ -1,0 +1,5 @@
+# Domains whose public TLS certificates are watched, each with all its subdomains.
+encedo.com
+ence.do
+onchato.com
+rkv.pl

@@ -8,6 +8,7 @@ One folder per site: pki.encedo.com is static, attest.encedo.com is a PHP servic
 | [`pki.encedo.com/`](pki.encedo.com/) | https://pki.encedo.com/ | Certificate authorities that attest Encedo HEM devices: certificates, revocation lists, `SHA256SUMS` and the page that explains them |
 | [`attest.encedo.com/`](attest.encedo.com/) | https://attest.encedo.com/ | Stateless validation of HEM attestation tokens (PHP 8.4, Docker); not static, see its [README](attest.encedo.com/README.md) |
 | [`attest_verify/`](attest_verify/) | - | CLI verifier (PHP + openssl CLI): prepare an attestation request, verify the token incl. ECDH / KEM proof of possession |
+| [`ct-watch/`](ct-watch/) | - | Watch of the public TLS certificates of our domains in the Certificate Transparency logs |
 
 ## pki.encedo.com
 
@@ -104,6 +105,30 @@ database (`ca/custody-ca/` on the signing host); copy the new ones into `/srv/at
 one per line) followed by the same `refresh`.
 
 TLS certificates come from Let's Encrypt (certbot, webroot `/var/www/acme`), renewed by `certbot.timer`.
+
+## ct-watch
+
+Every hour `ct-watch/ct_watch.py` asks the Cert Spotter API (`api.certspotter.com/v1/issuances`, no key, 10 queries
+an hour) for the certificates logged in public CT since its last run, for each domain in
+[`ct-watch/domains.txt`](ct-watch/domains.txt) with all its subdomains. It is the cheap way to read CT for a few
+domains: a local monitor would have to download every entry of every log.
+
+The first run of a domain records what is there and reports nothing. After that **every** new certificate is
+reported, labelled `renewal` (known names, known issuer), `NEW NAME` or `NEW ISSUER` (an issuing organisation never
+seen on that domain - the one to look at first). One run, one alert, with a `crt.sh` link per certificate:
+
+- **Uptime Kuma** (status.encedo.com), a Push monitor: `down` with a short text when something is new, `up` on a clean
+  run, nothing when the API failed - so the monitor's 2 h heartbeat also catches a dead watch. The push URL is a
+  secret, in `/etc/ct-watch/kuma.url` (mode 600), not in git.
+- **`/etc/ct-watch/notify`**, an executable getting the full text on stdin; on attest it hands it to the onchato bot.
+
+State: `/var/lib/ct-watch/state.json` (last id, names and issuers per domain, the latest reports).
+`python3 ct-watch/ct_watch.py status` shows the last run and the latest certificates. A domain added to the list gets
+its own silent baseline. Tests: `python3 ct-watch/test_ct_watch.py` (no network).
+
+```sh
+deploy/deploy.sh ctwatch    # run the tests, install /etc/cron.d/ct-watch (hourly, minute 23, log /var/log/ct-watch.log)
+```
 
 ## License
 

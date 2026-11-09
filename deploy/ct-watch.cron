@@ -1,0 +1,4 @@
+# /etc/cron.d/ct-watch - hourly: new public TLS certificates of our domains in the CT logs (ct-watch/)
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+23 * * * * root flock -n /run/ct-watch.lock python3 /opt/attest-pki-website/ct-watch/ct_watch.py run >> /var/log/ct-watch.log 2>&1
