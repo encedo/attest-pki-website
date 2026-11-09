@@ -112,6 +112,10 @@ Every hour `ct-watch/ct_watch.py` asks the Cert Spotter API (`api.certspotter.co
 an hour) for the certificates logged in public CT since its last run, for each domain in
 [`ct-watch/domains.txt`](ct-watch/domains.txt) with all its subdomains. It is the cheap way to read CT for a few
 domains: a local monitor would have to download every entry of every log.
+The limit is a bucket of about 10 queries refilled at about 10 an hour, one query per domain and run (more only when a
+domain has more new certificates than one page), so an hourly run fits about 8 domains. After a 429 the run stops
+asking, and no run - manual ones included - asks again before the `Retry-After` has passed; the domain checked longest
+ago goes first, so the same domains do not lose out every time.
 
 The first run of a domain records what is there and reports nothing. After that **every** new certificate is
 reported, labelled `renewal` (known names, known issuer), `NEW NAME` or `NEW ISSUER` (an issuing organisation never

@@ -25,7 +25,7 @@ def cert(i, names, issuer=LE):
 class FakeApi:
     """Issuances per domain, served after an id in pages of `page`, like the real API."""
     def __init__(self, page=100):
-        self.data, self.page, self.fail, self.calls = {}, page, set(), []
+        self.data, self.page, self.fail, self.limit, self.calls = {}, page, set(), set(), []
 
     def add(self, domain, c):
         self.data.setdefault(domain, []).append(c)
@@ -33,7 +33,9 @@ class FakeApi:
     def __call__(self, domain, after):
         self.calls.append((domain, after))
         if domain in self.fail:
-            raise ct_watch.ApiError('%s: HTTP 429' % domain)
+            raise ct_watch.ApiError('%s: HTTP 500' % domain)
+        if domain in self.limit:
+            raise ct_watch.RateLimited('%s: HTTP 429' % domain, 329)
         rows = [c for c in self.data.get(domain, []) if after is None or int(c['id']) > int(after)]
         return rows[:self.page]
 
@@ -65,9 +67,9 @@ class T(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.dir)
 
-    def run_once(self):
+    def run_once(self, now='2026-11-09T10:00:00Z'):
         a = Alerts()
-        rc = ct_watch.run(self.args, fetch=self.api, push=a.push, hook=a.hook, now='2026-11-09T10:00:00Z')
+        rc = ct_watch.run(self.args, fetch=self.api, push=a.push, hook=a.hook, now=now)
         return rc, a
 
     def state(self):
@@ -174,6 +176,47 @@ class T(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn('z.onchato.com', a.texts[0])
         self.assertEqual(a.pushes[0][0], 'down')
+
+    def test_rate_limit_stops_the_run(self):
+        self.run_once()
+        self.api.limit.add('onchato.com')
+        self.api.calls.clear()
+        rc, a = self.run_once('2026-11-09T11:00:00Z')
+        self.assertEqual((rc, a.pushes), (1, []))
+        self.assertEqual([c[0] for c in self.api.calls], ['onchato.com'])    # ence.do not asked
+        s = self.state()
+        self.assertEqual(s['backoff_until'], '2026-11-09T11:05:29Z')
+        self.assertIn('not asked: ence.do', s['last_errors'][0])
+
+    def test_backoff_asks_nothing_until_it_ends(self):
+        self.run_once()
+        self.api.limit.add('onchato.com')
+        self.run_once('2026-11-09T11:00:00Z')
+        self.api.limit.clear()
+        self.api.add('ence.do', cert(21, ['w.ence.do'], ZS))
+        self.api.calls.clear()
+        rc, a = self.run_once('2026-11-09T11:05:00Z')                       # before the end
+        self.assertEqual((rc, self.api.calls, a.pushes, a.texts), (1, [], [], []))
+        rc, a = self.run_once('2026-11-09T11:05:30Z')                       # after it
+        self.assertEqual(rc, 0)
+        self.assertIn('w.ence.do', a.texts[0])
+        self.assertNotIn('backoff_until', self.state())
+
+    def test_longest_unchecked_domain_first(self):
+        self.run_once()
+        self.api.limit.add('ence.do')
+        self.run_once('2026-11-09T11:00:00Z')        # onchato.com checked, ence.do limited
+        self.api.limit.clear()
+        self.api.calls.clear()
+        self.run_once('2026-11-09T12:00:00Z')
+        self.assertEqual([c[0] for c in self.api.calls][0], 'ence.do')
+
+    def test_retry_seconds(self):
+        self.assertEqual(ct_watch.retry_seconds('329'), 329)
+        self.assertEqual(ct_watch.retry_seconds('5'), 60)
+        self.assertEqual(ct_watch.retry_seconds('99999'), 7200)
+        self.assertEqual(ct_watch.retry_seconds(None), 600)
+        self.assertEqual(ct_watch.retry_seconds('Wed, 21 Oct 2026 07:28:00 GMT'), 600)
 
     def test_baseline_of_a_new_domain_later(self):
         self.run_once()

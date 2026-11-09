@@ -25,6 +25,7 @@ Files (all optional except the domain list):
 Python 3 standard library only.
 """
 import argparse
+import calendar
 import json
 import os
 import re
@@ -47,6 +48,13 @@ class ApiError(Exception):
     pass
 
 
+class RateLimited(ApiError):
+    """HTTP 429: every further query of this run would be refused as well."""
+    def __init__(self, msg, retry_after):
+        super().__init__(msg)
+        self.retry_after = retry_after
+
+
 def clean(s, n=200):
     """Text from the API, safe for a log line or a chat message."""
     s = re.sub(r'[\x00-\x1f\x7f-\x9f]', '?', str(s))
@@ -64,12 +72,31 @@ def fetch_api(domain, after, api=API, timeout=60):
         with urllib.request.urlopen(req, timeout=timeout) as r:
             data = json.load(r)
     except urllib.error.HTTPError as e:
+        if e.code == 429:
+            raise RateLimited('%s: HTTP 429' % domain, retry_seconds(e.headers.get('Retry-After')))
         raise ApiError('%s: HTTP %d' % (domain, e.code))
     except (OSError, ValueError) as e:
         raise ApiError('%s: %s' % (domain, clean(e, 120)))
     if not isinstance(data, list):
         raise ApiError('%s: unexpected answer' % domain)
     return data
+
+
+def retry_seconds(v, default=600):
+    """Retry-After in seconds (only the numeric form; the API sends it), bounded to 1 min .. 2 h."""
+    try:
+        n = int(str(v).strip())
+    except (TypeError, ValueError):
+        n = default
+    return max(60, min(n, 7200))
+
+
+def epoch(ts):
+    return calendar.timegm(time.strptime(ts, '%Y-%m-%dT%H:%M:%SZ'))
+
+
+def stamp(t):
+    return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(t))
 
 
 def issuer_org(iss):
@@ -97,10 +124,14 @@ def save_state(path, s):
 
 
 def scan(domains, state, fetch, now):
-    """Bring the state up to date; return (new certificates, errors)."""
+    """Bring the state up to date; return (new certificates, errors).
+
+    The domain checked longest ago goes first, so a rate limit hit half-way does not
+    starve the same domains every run; after a 429 the run stops asking."""
     new, errors = [], []
     seen = set(state['seen'])
-    for dom in domains:
+    order = sorted(domains, key=lambda d: state['domains'].get(d, {}).get('checked', ''))
+    for i, dom in enumerate(order):
         ds = state['domains'].get(dom)
         baseline = ds is None
         if baseline:
@@ -120,6 +151,11 @@ def scan(domains, state, fetch, now):
                     if last is None or int(cid) > int(last):
                         last = cid
                     found.append(c)
+        except RateLimited as e:
+            rest = order[i + 1:]
+            errors.append(clean(e) + ('; not asked: ' + ', '.join(rest) if rest else ''))
+            state['backoff_until'] = stamp(epoch(now) + e.retry_after)
+            break                         # nothing of this domain is committed
         except (ApiError, KeyError, TypeError) as e:
             errors.append(clean(e))
             continue                      # nothing of this domain is committed
@@ -143,7 +179,7 @@ def scan(domains, state, fetch, now):
             seen.add(sha)
             names.update(dns)
             issuers.add(org)
-        ds.update(last_id=last, names=sorted(names), issuers=sorted(issuers))
+        ds.update(last_id=last, names=sorted(names), issuers=sorted(issuers), checked=now)
         if baseline:
             ds['baseline'] = now
             ds['baseline_count'] = len(found)
@@ -214,10 +250,15 @@ def read_domains(path):
 
 
 def run(args, fetch=fetch_api, push=kuma_push, hook=notify, now=None):
-    now = now or time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+    now = now or stamp(time.time())
     domains = read_domains(args.domains)
     path = os.path.join(args.state, 'state.json')
     state = load_state(path)
+    wait = state.get('backoff_until')
+    if wait and now < wait:          # rate limited: do not spend the next allowance on a sure refusal
+        print('rate limited until %s, not asking' % wait)
+        return 1
+    state.pop('backoff_until', None)
     new, errors = scan(domains, state, fetch, now)
     state['last_run'] = now
     state['last_errors'] = errors
@@ -248,6 +289,8 @@ def run(args, fetch=fetch_api, push=kuma_push, hook=notify, now=None):
 def status(args):
     s = load_state(os.path.join(args.state, 'state.json'))
     print('last run: %s, last clean run: %s' % (s.get('last_run', 'never'), s.get('last_ok', 'never')))
+    if s.get('backoff_until'):
+        print('rate limited, next query after %s' % s['backoff_until'])
     for e in s.get('last_errors') or []:
         print('error: %s' % e)
     print('domains: %s' % ', '.join(sorted(s['domains'])))
