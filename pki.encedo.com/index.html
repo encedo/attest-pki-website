@@ -276,7 +276,8 @@
           Each Encedo HEM holds a key pair generated inside the device and a certificate
           for it, issued by the Encedo Custody CA for a HEM PPA or by the Encedo EPA Custody CA
           for a HEM EPA. This page publishes both chains up to the one root, with its revocation lists, so that any device can be checked
-          against it with stock tools and nothing taken on our word.
+          against it with stock tools and nothing taken on our word. A separate branch, the Encedo Signer CA,
+          certifies the keys that approve and sign Encedo firmware releases.
         </p>
       </div>
 
@@ -288,9 +289,10 @@
         <div class="conf-body">
           <div class="cline"><span class="c">[chain]</span></div>
           <div class="cline">Root        = <span class="k">Encedo Root CA</span> <span class="note">&middot; RSA 4096, to 2040</span></div>
-          <div class="cline"> &boxur; issues  = <span class="k">Encedo Attestation CA</span> <span class="note">&middot; P-256, to 2030</span></div>
-          <div class="cline">   &boxvr; issues = <span class="k">Encedo Custody CA</span> <span class="note">&middot; HEM PPA devices</span></div>
-          <div class="cline">   &boxur; issues = <span class="k">Encedo EPA Custody CA</span> <span class="note">&middot; HEM EPA devices</span></div>
+          <div class="cline"> &boxvr; issues  = <span class="k">Encedo Attestation CA</span> <span class="note">&middot; P-256, to 2030</span></div>
+          <div class="cline"> &boxv;   &boxvr; issues = <span class="k">Encedo Custody CA</span> <span class="note">&middot; HEM PPA devices</span></div>
+          <div class="cline"> &boxv;   &boxur; issues = <span class="k">Encedo EPA Custody CA</span> <span class="note">&middot; HEM EPA devices</span></div>
+          <div class="cline"> &boxur; issues  = <span class="k">Encedo Signer CA</span> <span class="note">&middot; firmware releases</span></div>
           <div class="cline">&nbsp;</div>
           <div class="cline"><span class="c">[verify]</span></div>
           <div class="cline in">$ openssl verify -CAfile <span class="k">root-ca.pem</span> \</div>
@@ -306,7 +308,7 @@
   <div class="wrap stack-l">
     <div class="stack-s measure">
       <p class="eyebrow">Certificate authorities</p>
-      <h2>Four authorities, one root.</h2>
+      <h2>Five authorities, one root.</h2>
       <p class="body-soft">
         Each certificate is published in DER (<code>.cer</code>, the form named in the
         certificates' own AIA fields) and in PEM. Compare the SHA-256 fingerprint with the
@@ -319,7 +321,7 @@
         <div class="lead">
           <span class="role">Trust anchor</span>
           <h3>Encedo Root CA</h3>
-          <p>Self-signed. Kept offline; it signs only the Attestation CA and its own revocation list.</p>
+          <p>Self-signed. Kept offline; it signs only the Attestation CA, the Signer CA and its own revocation list.</p>
           <div class="dl"><a href="root-ca.cer">root-ca.cer</a><a href="root-ca.pem">root-ca.pem</a></div>
         </div>
         <dl class="spec">
@@ -374,6 +376,21 @@
           <div class="row"><dt>SKI</dt><dd class="fp">83:C8:3D:3E:E2:AC:A9:C9:D6:3F:BC:E7:44:E9:7A:88:EC:B6:83:18</dd></div>
         </dl>
       </div>
+
+      <div class="ca">
+        <div class="lead">
+          <span class="role">Intermediate &middot; firmware releases</span>
+          <h3>Encedo Signer CA</h3>
+          <p>Issued by the Root CA, apart from the device branch. Certifies the keys of the Encedo firmware release: the operators who approve a release and the publisher key that signs the image; it issues no further CAs. Its certificates carry their own policy and extended key usage and are never accepted as device certificates.</p>
+          <div class="dl"><a href="signer-ca.cer">signer-ca.cer</a><a href="signer-ca.pem">signer-ca.pem</a></div>
+        </div>
+        <dl class="spec">
+          <div class="row"><dt>Key</dt><dd>ECDSA P-256</dd></div>
+          <div class="row"><dt>Valid</dt><dd>2026-11-25 &ndash; 2036-11-24</dd></div>
+          <div class="row"><dt>SHA-256</dt><dd class="fp">98:7F:E6:04:D1:C1:42:63:37:CF:2C:6D:B0:74:9E:D3:9D:DF:84:8F:13:7F:34:45:16:F7:96:7F:58:E0:64:5C</dd></div>
+          <div class="row"><dt>SKI</dt><dd class="fp">4B:FB:E2:87:B3:71:39:FD:63:AF:E1:BB:0D:A9:10:13:4A:2A:FD:BE</dd></div>
+        </dl>
+      </div>
     </div>
 
     <p class="body-soft measure">
@@ -403,6 +420,7 @@
       <div class="item"><dt>Encedo Attestation CA</dt><dd><a href="attestation-ca.crl">attestation-ca.crl</a></dd><dd>next update 2027-11-04</dd></div>
       <div class="item"><dt>Encedo Custody CA</dt><dd><a href="custody-ca.crl">custody-ca.crl</a></dd><dd>next update 2027-11-04</dd></div>
       <div class="item"><dt>Encedo EPA Custody CA</dt><dd><a href="epa-custody-ca.crl">epa-custody-ca.crl</a></dd><dd>next update 2027-11-06</dd></div>
+      <div class="item"><dt>Encedo Signer CA</dt><dd><a href="signer-ca.crl">signer-ca.crl</a></dd><dd>next update 2027-11-25</dd></div>
     </dl>
   </div>
 </section>

@@ -5,7 +5,7 @@ One folder per site: pki.encedo.com is static, attest.encedo.com is a PHP servic
 
 | folder | site | contents |
 |---|---|---|
-| [`pki.encedo.com/`](pki.encedo.com/) | https://pki.encedo.com/ | Certificate authorities that attest Encedo HEM devices: certificates, revocation lists, `SHA256SUMS` and the page that explains them |
+| [`pki.encedo.com/`](pki.encedo.com/) | https://pki.encedo.com/ | Certificate authorities that attest Encedo HEM devices (and, as a separate branch, the Encedo firmware release keys): certificates, revocation lists, `SHA256SUMS` and the page that explains them |
 | [`attest.encedo.com/`](attest.encedo.com/) | https://attest.encedo.com/ | Stateless validation of HEM attestation tokens (PHP 8.4, Docker); not static, see its [README](attest.encedo.com/README.md) |
 | [`attest_verify/`](attest_verify/) | - | CLI verifier (PHP + openssl CLI): prepare an attestation request, verify the token incl. ECDH / KEM proof of possession |
 | [`ct-watch/`](ct-watch/) | - | Watch of the public TLS certificates of our domains in the Certificate Transparency logs |
@@ -14,10 +14,16 @@ One folder per site: pki.encedo.com is static, attest.encedo.com is a PHP servic
 
 ```
 Encedo Root CA                 RSA 4096,    valid until 2040-12-31
-└─ Encedo Attestation CA       ECDSA P-256, valid until 2030-08-21
-   ├─ Encedo Custody CA        ECDSA P-256, valid until 2030-08-21   -> HEM PPA device certificates
-   └─ Encedo EPA Custody CA    ECDSA P-256, valid until 2030-08-21   -> HEM EPA device certificates
+├─ Encedo Attestation CA       ECDSA P-256, valid until 2030-08-21
+│  ├─ Encedo Custody CA        ECDSA P-256, valid until 2030-08-21   -> HEM PPA device certificates
+│  └─ Encedo EPA Custody CA    ECDSA P-256, valid until 2030-08-21   -> HEM EPA device certificates
+└─ Encedo Signer CA            ECDSA P-256, valid until 2036-11-24   -> firmware release keys (operators, publisher)
 ```
+
+The Signer CA is a separate branch for firmware releases. It certifies the cloud_signer operators (User1 / User2)
+and the firmware publisher key, under its own policy (`2.25.295977715113280988002148314551091508392.1`) and
+extended key usages. A Signer CA certificate is never a device certificate: the device chains above go through
+the Attestation CA only.
 
 The issuer of a device certificate tells the model: Custody CA for a HEM PPA, EPA Custody CA for a HEM EPA.
 EPA device certificates carry AIA and CRL distribution points (`epa-custody-ca.cer`, `epa-custody-ca.crl`).
@@ -63,7 +69,7 @@ openssl verify -crl_check_all -CAfile chain.pem -CRLfile crls.pem device.pem
 
 ### Revocation lists expire
 
-The CRLs are valid until **2027-11-04** (the EPA Custody CA's until 2027-11-06; renew all four together). Regenerate them before that date, update the dates on the page,
+The CRLs are valid until **2027-11-04** (the EPA Custody CA's until 2027-11-06, the Signer CA's until 2027-11-25; renew all five together). Regenerate them before that date, update the dates on the page,
 rebuild `SHA256SUMS`, commit, and deploy all of them together:
 
 ```sh
