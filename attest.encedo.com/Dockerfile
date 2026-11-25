@@ -7,6 +7,8 @@ COPY lib/ lib/
 COPY public/ public/
 COPY tools/build_index.php tools/build_index.php
 COPY tools/sync_pki.php tools/sync_pki.php
+COPY tools/ledger_sync.php tools/ledger_sync.php
+# /ledger (rw): the witnessed cloud_signer ledger history (lib/ledger.php)
 # read-only data mounted at run time: /data/pki/*.pem + /data/crl/*.crl.pem (Encedo PKI, tools/sync_pki.php), /data/data/index.sqlite (tools/build_index.php)
 ENV ATTEST_DATA=/data ENCEDO_OPENSSL=/usr/bin/openssl
 USER nobody

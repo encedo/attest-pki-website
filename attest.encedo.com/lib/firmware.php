@@ -4,6 +4,8 @@
  *
  *   fw_verify($cid)  a signed image by its IPFS CID: publisher signature, publisher certificate, ledger block, approvers
  *   fw_skid($id)     is a key a release key of Encedo: ['known' => bool, 'role' => 'User1' | 'User2' | 'Publisher']
+ * With valid also: ledger (included | not_in_ledger | unavailable, lib/ledger.php) and user1_approval
+ * (verified | invalid | not_recorded: User1's signature from the receipt, variant B).
  *
  * Trust:
  *   - the image is fetched from the IPFS gateway and its CID recomputed here (the gateway is not trusted);
@@ -17,6 +19,8 @@
  *   signer/*.pem the certificates of the release keys (copied from the CA, not in git, never served).
  * Gateway: ATTEST_IPFS_GATEWAY [https://ipfs.encedo.com/ipfs/]
  */
+
+require_once __DIR__ . '/ledger.php';
 
 const FW_CA = ['root-ca', 'signer-ca'];
 const FW_ARC = '2.25.295977715113280988002148314551091508392';
@@ -145,9 +149,10 @@ function fw_cidv0(string $data): string {
 
 // 'valid' with what was checked | 'invalid' (no reason, like the device answers) | 'unavailable' (gateway / PKI not synced)
 // ($get: cid, max bytes -> bytes | null, the gateway by default; $rootSha256: see fw_ready - both for tests only)
-function fw_verify(string $cid, ?callable $get = null, string $rootSha256 = ROOT_SHA256): array {
+function fw_verify(string $cid, ?callable $get = null, string $rootSha256 = ROOT_SHA256, string $ipns = LEDGER_IPNS): array {
     if (!preg_match('/^Qm[1-9A-HJ-NP-Za-km-z]{44}$/', $cid)) return ['status' => 'invalid'];
     if (!fw_ready($rootSha256)) return ['status' => 'unavailable'];
+    $ledgerGet = $get ?? 'ledger_get';
     $get ??= 'fw_gateway_get';
 
     $img = $get($cid, max(FW_SIZES));
@@ -178,7 +183,12 @@ function fw_verify(string $cid, ?callable $get = null, string $rootSha256 = ROOT
     $u2 = is_string($p['user2_keyid'] ?? null) ? fw_find($p['user2_keyid'], 'User2') : null;
     if ($u1 === null || $u2 === null || $u1['keyid'] === $u2['keyid']) return ['status' => 'invalid'];
 
-    return ['status' => 'valid', 'name' => rtrim($f['MyName'], "\0 "), 'variant' => FW_VARIANT[$f['Version']],
+    // S5: is the block in the ledger history attest has witnessed, and did User1 approve this image (receipt v2)
+    [$ledger, $st] = ledger_block_state($blockCid, $ledgerGet, $ipns);
+    $approval = $ledger === 'included' ? ledger_approval($st, $cid, $img, $blockCid, $u1, $ledgerGet) : 'not_recorded';
+
+    return ['status' => 'valid', 'ledger' => $ledger, 'user1_approval' => $approval,
+            'name' => rtrim($f['MyName'], "\0 "), 'variant' => FW_VARIANT[$f['Version']],
             'filename' => (string)($p['metadata']['filename'] ?? ''), 'signed' => $f['TimeStamp'],
             'block' => $b['blockSequence'], 'block_cid' => $blockCid,
             'user1' => $u1['cn'], 'user2' => $u2['cn'], 'publisher' => $publisher['cn']];

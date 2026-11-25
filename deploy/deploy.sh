@@ -22,6 +22,7 @@ set -eu
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 DATA=${ATTEST_DATA_DIR:-/srv/attest}
+LEDGER=${ATTEST_LEDGER_DIR:-/srv/attest-ledger}   # the witnessed cloud_signer ledger history: the only writable dir of the service
 WEB_PKI=/var/www/pki.encedo.com
 IMAGE=attest-service
 NAME=attest
@@ -104,6 +105,9 @@ deploy_attest() {
     PREV=$(docker inspect -f '{{.Image}}' "$NAME" 2>/dev/null || true)
     docker tag "$IMAGE:$REV" "$IMAGE:latest"
     refresh
+    # the ledger history from IPNS now; afterwards the service pulls only when it meets an unknown block
+    install -d -o "$UID_NOBODY" -g "$UID_NOBODY" -m 755 "$LEDGER"
+    docker run --rm -e ATTEST_DATA=/data -e ATTEST_LEDGER=/ledger -v "$DATA:/data:ro" -v "$LEDGER:/ledger" "$IMAGE:latest" php tools/ledger_sync.php || true
     docker rm -f "$NAME" >/dev/null 2>&1 || true
     run_container "$IMAGE:$REV"
     if smoke; then
@@ -138,6 +142,7 @@ run_container() {
     docker run -d --name "$NAME" --restart unless-stopped \
         -p "$PORT:8080" \
         -v "$DATA:/data:ro" \
+        -v "$LEDGER:/ledger" -e ATTEST_LEDGER=/ledger \
         --read-only --tmpfs /tmp:size=16m \
         --cap-drop ALL --security-opt no-new-privileges \
         --memory 256m --pids-limit 64 \

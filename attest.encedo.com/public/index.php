@@ -11,6 +11,7 @@
  *   POST /v1/firmware/verify   {"cid": "Qm..."} -> {"status": "valid|invalid|unavailable", ...what was checked with valid}
  *   GET  /v1/firmware/skid/<hex> {"known": bool, "role": "User1|User2|Publisher"}  (keyid = SHA-256 of the DER public key, or SKID = SHA-1 of the key)
  *   GET  /v1/firmware/pki      {"certificates": [...]}  root and Signer CA (the release key certificates are not served)
+ *   GET  /v1/firmware/head     the ledger head attest has witnessed (IPNS, lib/ledger.php), when, and an alarm if a head did not extend it
  * Run: php -d extension=pdo_sqlite -S localhost:8080 public/index.php
  * Nothing is stored and no JWT is logged; failures never say why.
  */
@@ -87,6 +88,12 @@ if ($path === '/v1/firmware/verify') {
 }
 if (preg_match('#^/v1/firmware/skid/([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$#', $path, $m)) {
     send_json(200, fw_skid(strtolower($m[1])), true);
+    exit;
+}
+if ($path === '/v1/firmware/head') {
+    $st = ledger_state();
+    send_json(200, ['head' => $st['head'], 'blocks' => count($st['blocks'] ?: []), 'receipts' => count($st['receipts'] ?: []),
+                    'pulled' => $st['pulled'], 'alarm' => $st['alarm']], true);
     exit;
 }
 if ($path === '/v1/firmware/pki') {
@@ -328,6 +335,7 @@ header('Cache-Control: no-store');
       <dt>POST /v1/firmware/verify</dt><dd><code>{"cid": "Qm..."}</code> &rarr; <code>{"status": "valid" | "invalid" | "unavailable"}</code>; with valid also the image name, variant, ledger block and who approved and signed it. The image and its ledger block are read from IPFS and their CIDs recomputed; the publisher signature, the publisher and the two approvers must hold certificates of the Encedo Signer CA.</dd>
       <dt>GET /v1/firmware/skid/&lt;hex&gt;</dt><dd>Is a key a release key of Encedo (keyid: SHA-256 of the DER public key, or SKID: SHA-1 of the key): <code>{"known": bool, "role": "User1" | "User2" | "Publisher"}</code>. The certificates themselves are not served.</dd>
       <dt>GET /v1/firmware/pki</dt><dd>The Encedo Root CA and the Encedo Signer CA</dd>
+      <dt>GET /v1/firmware/head</dt><dd>The cloud_signer ledger head attest has witnessed through IPNS: <code>{"head": {...}, "blocks", "receipts", "pulled", "alarm"}</code>. A head that does not extend the known history is not taken and raises <code>alarm</code>.</dd>
     </dl>
   </section>
 </div>
