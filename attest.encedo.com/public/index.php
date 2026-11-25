@@ -3,15 +3,21 @@
  * attest.encedo.com - stateless attestation JWT validation (DEV-498).
  *   GET  /                 form: paste a JWT (and optionally the device certificate), Validate
  *   POST /                 form result: status + JWT content table (+ device certificate)
- *   POST /v1/validate      {"jwt": "...", "crt": "..."?} -> {"status": "valid|valid_unverified|invalid", "expired": bool, "assurance": "hard|soft" (with valid, DEV-509)}
- *   GET  /v1/skid/<hex>    {"known": bool}  (SHA-1 or SHA-256 of 04||x||y of the device key)
- *   GET  /v1/pki           {"certificates": [...]}  Encedo CA certificates for offline chain validation
+ * Devices (Encedo Attestation CA branch):
+ *   POST /v1/device/validate   {"jwt": "...", "crt": "..."?} -> {"status": "valid|valid_unverified|invalid", "expired": bool, "assurance": "hard|soft" (with valid, DEV-509)}
+ *   GET  /v1/device/skid/<hex> {"known": bool}  (SHA-1 or SHA-256 of 04||x||y of the device key)
+ *   GET  /v1/device/pki        {"certificates": [...]}  root, Attestation CA, Custody CAs, for offline chain validation
+ * Firmware releases (Encedo Signer CA branch):
+ *   POST /v1/firmware/verify   {"cid": "Qm..."} -> {"status": "valid|invalid|unavailable", ...what was checked with valid}
+ *   GET  /v1/firmware/skid/<hex> {"known": bool, "role": "User1|User2|Publisher"}  (keyid = SHA-256 of the DER public key, or SKID = SHA-1 of the key)
+ *   GET  /v1/firmware/pki      {"certificates": [...]}  root and Signer CA (the release key certificates are not served)
  * Run: php -d extension=pdo_sqlite -S localhost:8080 public/index.php
  * Nothing is stored and no JWT is logged; failures never say why.
  */
 require __DIR__ . '/../lib/verify.php';
 require __DIR__ . '/../lib/store.php';
 require __DIR__ . '/../lib/pki.php';
+require __DIR__ . '/../lib/firmware.php';
 
 // Every answer carries Content-Length: the body is buffered and measured before anything
 // is sent (the PHP built-in server would otherwise answer chunked / close-delimited).
@@ -42,16 +48,16 @@ function read_body(): ?string {
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 
-if ($path === '/v1/validate') {
-    // CORS: the SDK calls this from a browser page; nothing is stored and no cookie is read, so any origin may ask
-    if ($method === 'OPTIONS') {
-        header('Access-Control-Allow-Origin: *');
-        header('Access-Control-Allow-Methods: POST, OPTIONS');
-        header('Access-Control-Allow-Headers: Content-Type');
-        header('Access-Control-Max-Age: 86400');
-        http_response_code(204);
-        exit;
-    }
+// CORS preflight of every /v1 path: nothing is stored and no cookie is read, so any origin may ask
+if (str_starts_with($path, '/v1/') && $method === 'OPTIONS') {
+    header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type');
+    header('Access-Control-Max-Age: 86400');
+    http_response_code(204);
+    exit;
+}
+if ($path === '/v1/device/validate') {
     if ($method !== 'POST') { send_json(405, ['error' => 'method'], true); exit; }
     $b = read_body();
     if ($b === null) { send_json(413, ['error' => 'too large'], true); exit; }
@@ -62,14 +68,29 @@ if ($path === '/v1/validate') {
     send_json(200, attest_status($r, $cert), true);
     exit;
 }
-if (preg_match('#^/v1/skid/([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$#', $path, $m)) {
-    if ($method === 'OPTIONS') { header('Access-Control-Allow-Origin: *'); http_response_code(204); exit; }
+if (preg_match('#^/v1/device/skid/([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$#', $path, $m)) {
     send_json(200, ['known' => skid_lookup(strtolower($m[1])) === 'known'], true);
     exit;
 }
-if ($path === '/v1/pki') {
-    if ($method === 'OPTIONS') { header('Access-Control-Allow-Origin: *'); http_response_code(204); exit; }
-    send_json(200, ['certificates' => pki_list()], true);
+if ($path === '/v1/device/pki') {
+    send_json(200, ['certificates' => pki_list(PKI_CA)], true);
+    exit;
+}
+if ($path === '/v1/firmware/verify') {
+    if ($method !== 'POST') { send_json(405, ['error' => 'method'], true); exit; }
+    $b = read_body();
+    if ($b === null) { send_json(413, ['error' => 'too large'], true); exit; }
+    $in = json_decode($b, true);
+    if (!is_array($in) || !is_string($in['cid'] ?? null)) { send_json(400, ['error' => 'expected {"cid": "Qm..."}'], true); exit; }
+    send_json(200, fw_verify(trim($in['cid'])), true);
+    exit;
+}
+if (preg_match('#^/v1/firmware/skid/([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$#', $path, $m)) {
+    send_json(200, fw_skid(strtolower($m[1])), true);
+    exit;
+}
+if ($path === '/v1/firmware/pki') {
+    send_json(200, ['certificates' => pki_list(FW_CA)], true);
     exit;
 }
 if ($path !== '/') { send_json(404, ['error' => 'not found']); exit; }
@@ -301,9 +322,12 @@ header('Cache-Control: no-store');
     <p class="eyebrow">Integration</p>
     <h2>The same checks over HTTP.</h2>
     <dl class="api">
-      <dt>POST /v1/validate</dt><dd><code>{"jwt": "...", "crt": "..."}</code> (crt optional) &rarr; <code>{"status": "valid" | "valid_unverified" | "invalid", "expired": bool, "assurance": "hard" | "soft"}</code> (assurance with valid: hard = HEM PPA, soft = HEM EPA)</dd>
-      <dt>GET /v1/skid/&lt;hex&gt;</dt><dd>Is a device key (SHA-1 or SHA-256 of <code>04&#8214;x&#8214;y</code>) known to Encedo: <code>{"known": bool}</code></dd>
-      <dt>GET /v1/pki</dt><dd>The Encedo CA certificates for offline validation; CRLs and fingerprints at <a href="https://pki.encedo.com/">pki.encedo.com</a></dd>
+      <dt>POST /v1/device/validate</dt><dd><code>{"jwt": "...", "crt": "..."}</code> (crt optional) &rarr; <code>{"status": "valid" | "valid_unverified" | "invalid", "expired": bool, "assurance": "hard" | "soft"}</code> (assurance with valid: hard = HEM PPA, soft = HEM EPA)</dd>
+      <dt>GET /v1/device/skid/&lt;hex&gt;</dt><dd>Is a device key (SHA-1 or SHA-256 of <code>04&#8214;x&#8214;y</code>) known to Encedo: <code>{"known": bool}</code></dd>
+      <dt>GET /v1/device/pki</dt><dd>The Encedo CA certificates of the device branch for offline validation; CRLs and fingerprints at <a href="https://pki.encedo.com/">pki.encedo.com</a></dd>
+      <dt>POST /v1/firmware/verify</dt><dd><code>{"cid": "Qm..."}</code> &rarr; <code>{"status": "valid" | "invalid" | "unavailable"}</code>; with valid also the image name, variant, ledger block and who approved and signed it. The image and its ledger block are read from IPFS and their CIDs recomputed; the publisher signature, the publisher and the two approvers must hold certificates of the Encedo Signer CA.</dd>
+      <dt>GET /v1/firmware/skid/&lt;hex&gt;</dt><dd>Is a key a release key of Encedo (keyid: SHA-256 of the DER public key, or SKID: SHA-1 of the key): <code>{"known": bool, "role": "User1" | "User2" | "Publisher"}</code>. The certificates themselves are not served.</dd>
+      <dt>GET /v1/firmware/pki</dt><dd>The Encedo Root CA and the Encedo Signer CA</dd>
     </dl>
   </section>
 </div>

@@ -6,7 +6,7 @@ One folder per site: pki.encedo.com is static, attest.encedo.com is a PHP servic
 | folder | site | contents |
 |---|---|---|
 | [`pki.encedo.com/`](pki.encedo.com/) | https://pki.encedo.com/ | Certificate authorities that attest Encedo HEM devices (and, as a separate branch, the Encedo firmware release keys): certificates, revocation lists, `SHA256SUMS` and the page that explains them |
-| [`attest.encedo.com/`](attest.encedo.com/) | https://attest.encedo.com/ | Stateless validation of HEM attestation tokens (PHP 8.4, Docker); not static, see its [README](attest.encedo.com/README.md) |
+| [`attest.encedo.com/`](attest.encedo.com/) | https://attest.encedo.com/ | Stateless validation of HEM attestation tokens (`/v1/device/*`) and of Encedo firmware releases (`/v1/firmware/*`) (PHP 8.4, Docker); not static, see its [README](attest.encedo.com/README.md) |
 | [`attest_verify/`](attest_verify/) | - | CLI verifier (PHP + openssl CLI): prepare an attestation request, verify the token incl. ECDH / KEM proof of possession |
 | [`ct-watch/`](ct-watch/) | - | Watch of the public TLS certificates of our domains in the Certificate Transparency logs |
 

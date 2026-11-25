@@ -15,6 +15,7 @@
 # Runs as root. Data outside the repo, in $DATA:
 #   issued/*.pem   device certificates issued by the Encedo Custody CA (not in git; copied from the CA)
 #   revoked.txt    revoked device SKIDs, one per line (may be empty)
+#   signer/*.pem   certificates of the firmware release keys (Encedo Signer CA: User1, User2, Publisher; not in git, never served)
 #   pki/ crl/      written by tools/sync_pki.php
 #   data/          index.sqlite, written by tools/build_index.php
 set -eu
@@ -76,7 +77,7 @@ tool() {  # run a tool of the image against $DATA, writable
 }
 
 refresh() {
-    mkdir -p "$DATA/issued" "$DATA/pki" "$DATA/crl" "$DATA/data"
+    mkdir -p "$DATA/issued" "$DATA/signer" "$DATA/pki" "$DATA/crl" "$DATA/data"
     [ -f "$DATA/revoked.txt" ] || : > "$DATA/revoked.txt"
     chown -R "$UID_NOBODY:$UID_NOBODY" "$DATA/pki" "$DATA/crl" "$DATA/data"
     tool tools/sync_pki.php https://pki.encedo.com
@@ -86,8 +87,8 @@ refresh() {
 smoke() {  # the container answers and has the PKI and the index
     i=0
     while [ $i -lt 20 ]; do
-        if curl -fsS "http://$PORT/v1/pki" 2>/dev/null | grep -q '"certificates":\[{' &&
-           curl -fsS "http://$PORT/v1/skid/0000000000000000000000000000000000000000" 2>/dev/null | grep -q '"known":false'; then
+        if curl -fsS "http://$PORT/v1/device/pki" 2>/dev/null | grep -q '"certificates":\[{' &&
+           curl -fsS "http://$PORT/v1/device/skid/0000000000000000000000000000000000000000" 2>/dev/null | grep -q '"known":false'; then
             return 0
         fi
         i=$((i + 1)); sleep 1

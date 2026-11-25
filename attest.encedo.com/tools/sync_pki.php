@@ -1,9 +1,10 @@
 <?php
 /*
  * Fetches the Encedo PKI from https://pki.encedo.com into the data dir (ATTEST_DATA, default: the project root):
- *   pki/<ca>.pem      CA certificates (published by /v1/pki, used for the chain)
+ *   pki/<ca>.pem      CA certificates (served by /v1/device/pki and /v1/firmware/pki, used for the chains)
  *   crl/<ca>.crl.pem  CRLs (PEM, for openssl verify -crl_check_all)
- *   <ca> = root-ca, attestation-ca, custody-ca (HEM PPA), epa-custody-ca (HEM EPA): PKI_CA in lib/pki.php
+ *   <ca> = root-ca, attestation-ca, custody-ca (HEM PPA), epa-custody-ca (HEM EPA): PKI_CA in lib/pki.php,
+ *          and signer-ca (firmware releases): FW_CA in lib/firmware.php
  *   php tools/sync_pki.php [base URL]
  * Every file is checked against SHA256SUMS, the root against the pinned fingerprint (ROOT_SHA256 in lib/pki.php), and the whole set with
  * openssl verify before anything is replaced. Run it from cron (the CRLs are reissued yearly; nextUpdate is shown on the page).
@@ -11,6 +12,7 @@
 require __DIR__ . '/../lib/verify.php';
 require __DIR__ . '/../lib/store.php';
 require __DIR__ . '/../lib/pki.php';
+require __DIR__ . '/../lib/firmware.php';
 
 $base = rtrim($argv[1] ?? 'https://pki.encedo.com', '/') . '/';
 function fail(string $m): never { fwrite(STDERR, "sync_pki: $m\n"); exit(1); }
@@ -32,7 +34,7 @@ $get = function (string $name) use ($base, $sums): string {
 
 $tmp = sys_get_temp_dir() . '/attest_pki_' . getmypid();
 @mkdir("$tmp/pki", 0777, true); @mkdir("$tmp/crl", 0777, true);
-foreach (PKI_CA as $name) {
+foreach (array_unique(array_merge(PKI_CA, FW_CA)) as $name) {
     $pem = $get("$name.pem");
     $der = $get("$name.cer");
     if (pem_to_der($pem) !== $der) fail("$name: PEM and DER differ");
@@ -47,6 +49,9 @@ foreach (PKI_CA as $name) {
 $issuing = array_map(fn($n) => "$tmp/pki/$n.pem", array_keys(PKI_ISSUING));
 [$rc, $out] = ossl_run(array_merge(['verify', '-crl_check_all'], crl_args("$tmp/crl"), ['-CAfile', "$tmp/pki/root-ca.pem", '-untrusted', "$tmp/pki/attestation-ca.pem"], $issuing));
 if ($rc !== 0) fail("chain check: $out");
+// the Signer CA up to the same pinned root, with the root and Signer CA CRLs
+[$rc, $out] = ossl_run(['verify', '-crl_check_all', '-CRLfile', "$tmp/crl/root-ca.crl.pem", '-CRLfile', "$tmp/crl/signer-ca.crl.pem", '-CAfile', "$tmp/pki/root-ca.pem", "$tmp/pki/signer-ca.pem"]);
+if ($rc !== 0) fail("signer chain check: $out");
 
 $dst = data_dir();
 foreach (['pki', 'crl'] as $d) {

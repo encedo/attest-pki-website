@@ -67,10 +67,12 @@ function attest_status(array $r, ?array $cert = null): array {
     return $out;
 }
 
-// the Encedo CA certificates, for offline chain building in the SDK
-function pki_list(): array {
+// Encedo CA certificates of one branch (device: PKI_CA, firmware: FW_CA), for offline chain building in the SDK
+function pki_list(array $names): array {
     $out = [];
-    foreach (glob(data_dir() . '/pki/*.pem') ?: [] as $f) {
+    foreach ($names as $n) {
+        $f = data_dir() . "/pki/$n.pem";
+        if (!is_file($f)) continue;
         $pem = file_get_contents($f);
         $c = @openssl_x509_parse($pem);
         if (!$c) continue;

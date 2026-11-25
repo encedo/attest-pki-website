@@ -46,7 +46,7 @@ function pki_ready(): bool {
 // [{issuer, next (unix), revoked (count)}] of the synced CRLs
 function crl_info(): array {
     $out = [];
-    foreach (PKI_CA as $n) {
+    foreach (array_unique(array_merge(PKI_CA, defined('FW_CA') ? FW_CA : [])) as $n) {   // + the Signer CA when lib/firmware.php is loaded
         $f = data_dir() . "/crl/$n.crl.pem";
         if (!is_file($f)) continue;
         [$rc, $t] = ossl_run(['crl', '-in', $f, '-noout', '-text']);
